@@ -156,7 +156,7 @@ releases/
 
 - **No Python, no LangChain.** The docs-first learning loop above is deliberately small — prompt the model, run the MCP tool, chunk the result, update the wiki. A framework would outweigh the app; in Rust it is just code in one binary.
 - **Crates, not ecosystems.** One HTTP client for the model backends and web search, one SQLite binding for the vector store, one markdown writer for Wiki Memory — each a small Rust crate, nothing dragging an ML stack along behind it.
-- **Cross-compiled, not re-ported.** Both folders come from the identical codebase: the aarch64 Android target builds `android-arm/`, the regular build `pc/`. No maintained divergence, no separate fork for Termux.
+- **Cross-compiled, not ported.** Both folders come from the identical codebase: the aarch64 Android target builds `android-arm/`, the regular build `pc/`. No maintained divergence, no separate fork for Termux.
 
 ## The `@`-Shell
 
