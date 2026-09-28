@@ -1,28 +1,36 @@
 # DeCypherTek.ai
 
-A customizable, self-learning AI agent built for penetration testing. It is taught to read the docs before it uses a tool, remember what it learns, run its tools in Docker MCP containers, and ship as one executable that can replicate itself.
+A customizable, self-learning AI agent. It is taught to read the docs before it uses a tool, remember what it learns, search the web to do research, run its tools over MCP, and ship as one PyInstaller executable that runs anywhere — including Termux on Android.
 
 *Decoding technology, so you don't have to.*
 
 ## Overview
 
-DeCypherTek.ai is a docs-first agent framework for authorized security testing. The architecture is deliberately the simplest one that works — a heavier, earlier design was torn down and rebuilt around these ideas. Instead of a closed product, the system is customizable by design:
+DeCypherTek.ai is a customizable agent framework that can be used for anything — the behavior, knowledge, and tools are yours to define. The agent has access to the technical knowledge and docs you provide, can search the web to do research, and carries a real memory: Wiki Memory together with a Vector DB lets the LLM learn, remember, and hold custom knowledge, so it gets smarter with every run.
+
+The whole thing is one PyInstaller executable — the same binary runs on your desktop, your server, and your phone in Termux. The architecture is deliberately the simplest one that works:
 
 - Agent behavior is defined in customizable `AGENT.md` files.
-- Memory lives in a local SQLite vector store plus a markdown Wiki Memory.
-- Tools run as Docker MCP containers.
-- The entire agent packages into a single PyInstaller executable, which also makes self-replication easy.
+- Memory lives in a local SQLite vector store plus a markdown Wiki Memory — no external database to stand up, which is exactly what lets a phone run it.
+- Knowledge is custom: you provide the docs and technical knowledge it works from.
+- Tools speak MCP — in Docker containers on desktop and server, as local processes under Termux on Android.
+- Web search is built in for research.
+- It can sync itself through sync MCP servers — Wiki Memory as a git repo on GitHub, the data directory backed up to Proton Drive via rclone.
+- One binary for every platform, which also makes self-replication easy — and one command installs it on Termux.
 
 ## Core Ideas
 
-- **Pentest-first.** Previous agent builds proved the concept but were general purpose; this one is purpose-built for penetration-testing workflows.
-- **SQLite vector store.** A vector is just a DB — it chunks information so docs can be searched quickly. Simple to build, no external database service required.
-- **Hardcoded Wiki Memory.** Wiki Memory is markdown, so it is technically docs: curated baseline knowledge the agent ships with out of the box.
-- **Teaching the LLM logic.** The agent is instructed: read the man pages first before using a tool, then chunk them into the vector store. When a tool call teaches it something new, chunk that again into the vector store and/or update Wiki Memory.
-- **Docker MCP tools.** Tools are MCP (Model Context Protocol) servers running in Docker containers.
-- **Customizable agents.** Build custom agents whose `AGENT.md` can be customized per use case, without touching code.
-- **Single PyInstaller executable.** An all-in-one binary — and the mechanism that makes self-replication easy.
-- **Termux / mobile.** A goal: a build that runs on a phone via Termux.
+- **Customizable.** It can be used for anything. Behavior comes from a customizable `AGENT.md`, knowledge comes from the docs you provide, and tools come from MCP servers — swap any of them and it is a different agent.
+- **Memory.** Wiki Memory and a Vector DB give the LLM a real memory — it can learn, retain what it learns, and carry custom knowledge across runs.
+- **Custom knowledge.** The agent has access to the technical knowledge and docs you provide, chunked into memory, so it works on your stack and in your domain.
+- **SQLite vector store.** A vector is just a DB — it chunks knowledge so docs can be searched quickly. Simple to build, no external database service required.
+- **Hardcoded Wiki Memory.** Wiki Memory is markdown, so it is technically docs: curated baseline knowledge the agent ships with out of the box, and a place to write what it learns.
+- **Teaching the LLM logic.** The agent is instructed: read the docs (man pages first) before using a tool, then chunk them into the vector store. When a tool call teaches it something new, chunk that again into the vector store and/or update Wiki Memory.
+- **Web research.** When memory and local docs are not enough, the agent can search the web to do research — and chunk what it finds into memory.
+- **Sync.** Since the agent is one binary plus one data directory, syncing itself is just moving that directory: a GitHub MCP server keeps Wiki Memory as a versioned git repo, and an rclone MCP server backs the data directory up to Proton Drive.
+- **MCP tools.** Tools are MCP (Model Context Protocol) servers — Docker containers on desktop and server, local processes under Termux on Android.
+- **One PyInstaller executable.** Everything — the agent, its memory engine, the bundled baseline docs — packages into a single onefile binary, and that is also what makes self-replication easy.
+- **Termux / Android.** A first-class target: the exact same binary runs in Termux on a phone, with a one-command install script that sets everything up.
 
 ## Architecture
 
@@ -34,20 +42,31 @@ flowchart TB
         Orchestrator --- AgentDef
     end
 
-    subgraph Memory["Memory subsystem"]
-        Vector[("SQLite Vector Store<br/>chunked docs for quick search")]
+    subgraph Memory["Memory subsystem - local, offline-first"]
+        Vector[("SQLite Vector Store<br/>chunked knowledge for quick search")]
         Wiki[("Wiki Memory<br/>markdown knowledge base")]
     end
 
-    subgraph Tools["Tool layer"]
-        MCP["Docker MCP containers"]
+    subgraph Tools["Tool layer - MCP"]
+        Docker["Docker MCP containers<br/>(desktop and server)"]
+        Native["MCP processes in Termux<br/>(no Docker on Android)"]
+        Web["Web search for research"]
     end
 
-    Operator([Operator]) -->|task| Orchestrator
+    subgraph Sync["Sync - MCP"]
+        Ghsync["GitHub MCP server<br/>Wiki Memory as a git repo"]
+        Rclone["rclone MCP server<br/>Proton Drive backup"]
+    end
+
+    You([You]) -->|task| Orchestrator
+    You -->|your docs and knowledge| Memory
     Memory -->|retrieved context| Orchestrator
     Orchestrator -->|chunk learnings and update wiki| Memory
-    Orchestrator -->|tool calls| MCP
-    MCP -->|results and learnings| Orchestrator
+    Orchestrator -->|tool calls| Tools
+    Tools -->|results, research, learnings| Orchestrator
+    Orchestrator -->|backup and sync| Sync
+    Sync -->|restore memory on any device| Memory
+    Core ==>|same self-replicating binary| Deploy["Runs everywhere:<br/>desktop, server, and Termux on Android"]
 ```
 
 ### Components
@@ -56,28 +75,65 @@ flowchart TB
 | --- | --- |
 | **LLM Orchestrator** | Planning, reasoning, and driving the loop below. |
 | **`AGENT.md`** | Customizable per-agent definition; behavior without code. |
-| **SQLite Vector Store** | Chunked docs for fast semantic search. |
-| **Wiki Memory** | Markdown knowledge base; hardcoded baseline, updated as the agent learns. |
-| **Docker MCP containers** | Isolated tool execution over the Model Context Protocol. |
-| **PyInstaller binary** | All-in-one packaging; the self-replication vehicle. |
+| **SQLite Vector Store** | Chunked knowledge for fast semantic search. |
+| **Wiki Memory** | Markdown knowledge base; hardcoded baseline plus everything the agent writes back. |
+| **Your docs** | Technical knowledge and docs you provide, chunked into memory. |
+| **Web search** | Online research; findings get chunked into memory. |
+| **MCP tool servers** | Tools over the Model Context Protocol — Docker containers on desktop and server, local processes under Termux. |
+| **Sync MCP servers** | Backup and restore of the data directory — GitHub for versioned Wiki Memory, Proton Drive via rclone. |
+| **PyInstaller binary** | One executable for desktop, server, and Android (Termux); the self-replication vehicle. |
 
-### Learning Loop
+### How It Learns
 
-1. **Before a tool call** — the agent reads the tool's docs (man pages first) for what it is about to use and chunks them into the vector store.
-2. **Call the tool** — execution happens inside its Docker MCP container.
-3. **After the tool call** — chunk what was learned into the vector store and/or update Wiki Memory.
-4. **Next run starts smarter** — knowledge is recalled from memory instead of relearned from scratch.
+1. **Before a tool call** — the agent reads the docs for what it is about to use (man pages first) and chunks them into the vector store.
+2. **Research** — when memory and local docs don't hold the answer, it searches the web and chunks the findings into memory.
+3. **Call the tool** — execution happens through its MCP tool server: containerized on desktop and server, a local process in Termux.
+4. **After the tool call** — chunk what was learned into the vector store and/or update Wiki Memory.
+5. **Next run starts smarter** — knowledge is recalled from memory instead of relearned from scratch.
+
+### How It Syncs
+
+Sync is just MCP tool calls that move the agent's one data directory, so the same mechanism works for backup and for replication:
+
+- **GitHub (GitHub MCP server).** Wiki Memory *is* a git repo — every commit is versioned history of what the agent has ever learned. A new device clones it; the binary comes from GitHub Releases; the agent that arrives is the same one that left.
+- **Proton Drive (rclone MCP server).** Proton Drive has no public API to build on, but rclone speaks it — an MCP server wrapping rclone syncs the whole data directory (Wiki Memory + vector store) as a backup.
+- **Anywhere, container or not.** Both sync providers are MCP tool servers like any other: Docker containers on desktop and server, plain `git` and `rclone` under Termux — it works equally well on a phone.
+
+## Termux on Android
+
+The phone is a first-class platform, not an afterthought. Everything is just one PyInstaller executable, and it runs in Termux:
+
+- **One binary.** The agent, its memory engine, and the bundled baseline docs are a single onefile binary built for aarch64 — no Python toolchain, no pip installs. The install script below fetches it plus the few helpers Termux needs.
+- **Local-first memory.** No external database or hosted service is required — the SQLite vector store and Wiki Memory are just files in the agent's data directory on the phone. That is the whole reason the memory design stays this simple: it has to run on a phone.
+- **Tools over MCP.** Docker does not run natively on Android, so MCP tool servers run as local processes inside Termux — or in a proot-based Docker install where the device kernel allows it, or against your desktop's Docker over SSH. The same servers run containerized on desktop and server.
+- **Research in your pocket.** Web search gives the phone everything it does not already carry; the findings get chunked into memory for next time.
+- **Replication is a copy plus a sync.** Pull the binary from Releases, restore the memory from GitHub or Proton Drive — brand-new device, same learned agent.
+
+### Install on Termux
+
+One command:
+
+```bash
+curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install-termux.sh | bash
+```
+
+The script:
+
+1. Updates Termux and installs the light prerequisites — `git`, `rclone`, `openssh`, and core tools.
+2. Sets up Docker as well as Termux allows — a proot-based Docker install when the device kernel supports it, otherwise it points `DOCKER_HOST` at your desktop/server over SSH; if neither applies, it skips containers and MCP tool servers simply run natively.
+3. Downloads the PyInstaller agent executable (aarch64) from GitHub Releases and puts it on your `PATH`.
+4. Optional but recommended — clones your Wiki Memory repo and configures Proton Drive in rclone, so the very first run starts with the agent's memory intact.
+
+Everything the script does, the agent can also do for itself — the script just compresses the first five minutes into one command.
 
 ## Roadmap
 
-- [ ] Finalize this architecture and harden it for security
 - [ ] Build the SQLite vector store and hardcoded Wiki Memory (~1 week of effort)
 - [ ] Implement the docs-first learning loop
-- [ ] Integrate Docker MCP tool containers
+- [ ] Add web search for research
+- [ ] Integrate MCP tool servers — Docker on desktop and server, local processes under Termux
+- [ ] MCP sync servers — GitHub for versioned Wiki Memory, rclone for Proton Drive
 - [ ] Support customizable agents via `AGENT.md`
-- [ ] Package a single PyInstaller executable with self-replication
-- [ ] Termux build for mobile
-
-## Responsible Use
-
-This project is intended for authorized penetration testing and security research only. Only test systems you own or have explicit written permission to test.
+- [ ] Package the single PyInstaller executable for desktop, server, and Termux (aarch64)
+- [ ] Ship the Termux install script — prerequisites, best-effort Docker, binary from Releases
+- [ ] Prove it end to end in Termux on Android: one-command install, learn a tool, sync, self-replicate
