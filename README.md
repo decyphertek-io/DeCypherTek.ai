@@ -3,7 +3,7 @@
 > **Status: Research & Development — Phase 1.**
 > This is just the working architecture document — nothing is built yet, and everything here is subject to change.
 
-A customizable, self-learning AI agent. It is taught to read the docs before it uses a tool, remember what it learns, search the web to do research, run its tools over MCP, and ship as one PyInstaller executable that runs anywhere — including Termux on Android.
+A customizable, self-learning AI agent. It is taught to read the docs before it uses a tool, remember what it learns, search the web to do research, run its tools over MCP, and ship as one Rust executable that runs anywhere — including Termux on Android.
 
 *Decoding technology, so you don't have to.*
 
@@ -11,7 +11,7 @@ A customizable, self-learning AI agent. It is taught to read the docs before it 
 
 DeCypherTek.ai is a customizable agent framework that can be used for anything — the behavior, knowledge, and tools are yours to define. The agent has access to the technical knowledge and docs you provide, can search the web to do research, and carries a real memory: Wiki Memory together with a Vector DB lets the LLM learn, remember, and hold custom knowledge, so it gets smarter with every run.
 
-The whole thing is one PyInstaller executable — the same binary runs on your desktop, your server, and your phone in Termux. The architecture is deliberately the simplest one that works:
+The whole thing is one native Rust executable per platform — one codebase cross-compiled into two release folders: `pc/` for standard computers, `android-arm/` for Termux on Android. The architecture is deliberately the simplest one that works:
 
 - Agent behavior is defined in customizable `AGENT.md` files.
 - Memory lives in a local SQLite vector store plus a markdown Wiki Memory — no external database to stand up, which is exactly what lets a phone run it.
@@ -20,7 +20,7 @@ The whole thing is one PyInstaller executable — the same binary runs on your d
 - Web search is built in for research.
 - Its brain is pluggable but stays simple: OpenRouter by default — one lightweight API key for every hosted model — or your own Ollama if you want local models. Nothing else is supported, on purpose.
 - It can sync itself through sync MCP servers — Wiki Memory as a git repo on GitHub, the data directory backed up to Proton Drive via rclone.
-- One binary for every platform, which also makes self-replication easy — and one command installs it on Termux.
+- One Rust binary per release folder — `android-arm/` and `pc/` — which also keeps self-replication easy, and one command installs it on Termux.
 
 ## Core Ideas
 
@@ -34,14 +34,15 @@ The whole thing is one PyInstaller executable — the same binary runs on your d
 - **Web research.** When memory and local docs are not enough, the agent can search the web to do research — and chunk what it finds into memory.
 - **Sync.** Since the agent is one binary plus one data directory, syncing itself is just moving that directory: a GitHub MCP server keeps Wiki Memory as a versioned git repo, and an rclone MCP server backs the data directory up to Proton Drive.
 - **MCP tools.** Tools are MCP (Model Context Protocol) servers — Docker containers on desktop and server, local processes under Termux on Android.
-- **One PyInstaller executable.** Everything — the agent, its memory engine, the bundled baseline docs — packages into a single onefile binary, and that is also what makes self-replication easy.
+- **One Rust executable.** Everything — the agent, its memory engine, the bundled baseline docs — compiles into a single native binary: no interpreter, no runtime, no framework. That is also what makes self-replication easy.
+- **No LangChain — the loop is plain code.** The docs-first loop is deliberately small: prompt the model, call the tool, chunk the result, update the wiki. In Python that is a framework's job; in Rust it is a few hundred owned lines.
 - **Termux / Android.** A first-class target: the exact same binary runs in Termux on a phone, with a one-command install script that sets everything up.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    subgraph Core["Agent Core - single PyInstaller executable"]
+    subgraph Core["Agent Core - single Rust executable"]
         Orchestrator["LLM Orchestrator"]
         AgentDef["AGENT.md - customizable agent definition"]
         Orchestrator --- AgentDef
@@ -94,7 +95,7 @@ flowchart TB
 | **Web search** | Online research; findings get chunked into memory. |
 | **MCP tool servers** | Tools over the Model Context Protocol — Docker containers on desktop and server, local processes under Termux. |
 | **Sync MCP servers** | Backup and restore of the data directory — GitHub for versioned Wiki Memory, Proton Drive via rclone. |
-| **PyInstaller binary** | One executable for desktop, server, and Android (Termux); the self-replication vehicle. |
+| **Rust binary** | One native executable per release folder — `android-arm/` for Termux, `pc/` for standard computers; the self-replication vehicle. |
 
 ### How It Learns
 
@@ -120,11 +121,25 @@ Two backends, deliberately — anything more would break the simple rule:
 - **Ollama is optional.** Install Ollama and the agent runs your own local models instead — fully local, no API key, no per-token cost. It sits on your desktop or server; a phone in Termux can reach an Ollama on your LAN when you want zero-cloud runs.
 - **Why only these two.** OpenRouter and Ollama both expose OpenAI-style HTTP, so the orchestrator carries exactly one thin model client: swap the base URL and key and the same binary runs cloud or local. That is the entire model layer — kept small on purpose.
 
+### The Stack
+
+Rust end to end — one codebase, two release folders:
+
+```
+releases/
+├── android-arm/    # aarch64 - runs in Termux on Android
+└── pc/             # x86_64 - standard PCs and servers
+```
+
+- **No Python, no LangChain.** The docs-first learning loop above is deliberately small — prompt the model, run the MCP tool, chunk the result, update the wiki. A framework would outweigh the app; in Rust it is just code in one binary.
+- **Crates, not ecosystems.** One HTTP client for the model backends and web search, one SQLite binding for the vector store, one markdown writer for Wiki Memory — each a small Rust crate, nothing dragging an ML stack along behind it.
+- **Cross-compiled, not re-ported.** Both folders come from the identical codebase: the aarch64 Android target builds `android-arm/`, the regular build `pc/`. No maintained divergence, no separate fork for Termux.
+
 ## Termux on Android
 
-The phone is a first-class platform, not an afterthought. Everything is just one PyInstaller executable, and it runs in Termux:
+The phone is a first-class platform, not an afterthought. Everything is just one Rust executable from the `android-arm/` release folder, and it runs in Termux:
 
-- **One binary.** The agent, its memory engine, and the bundled baseline docs are a single onefile binary built for aarch64 — no Python toolchain, no pip installs. The install script below fetches it plus the few helpers Termux needs.
+- **One binary.** The agent, its memory engine, and the bundled baseline docs are a single Rust binary built for aarch64 — no interpreter, no runtime, no Python toolchain, no pip. The install script below fetches it plus the few helpers Termux needs.
 - **Local-first memory.** No external database or hosted service is required — the SQLite vector store and Wiki Memory are just files in the agent's data directory on the phone. That is the whole reason the memory design stays this simple: it has to run on a phone.
 - **Tools over MCP.** Docker does not run natively on Android, so MCP tool servers run as local processes inside Termux — or in a proot-based Docker install where the device kernel allows it, or against your desktop's Docker over SSH. The same servers run containerized on desktop and server.
 - **A phone-sized brain.** The phone never runs the model — OpenRouter is the default backend, so the phone just makes lightweight API calls to whatever hosted model you pick. Install Ollama on your desktop and the same binary goes fully local instead.
@@ -143,7 +158,7 @@ The script:
 
 1. Updates Termux and installs the light prerequisites — `git`, `rclone`, `openssh`, and core tools.
 2. Sets up Docker as well as Termux allows — a proot-based Docker install when the device kernel supports it, otherwise it points `DOCKER_HOST` at your desktop/server over SSH; if neither applies, it skips containers and MCP tool servers simply run natively.
-3. Downloads the PyInstaller agent executable (aarch64) from GitHub Releases and puts it on your `PATH`.
+3. Downloads the Rust agent binary from the `android-arm/` release folder and puts it on your `PATH`.
 4. Optional but recommended — clones your Wiki Memory repo and configures Proton Drive in rclone, so the very first run starts with the agent's memory intact.
 
 Everything the script does, the agent can also do for itself — the script just compresses the first five minutes into one command.
@@ -151,12 +166,12 @@ Everything the script does, the agent can also do for itself — the script just
 ## Roadmap
 
 - [ ] Build the SQLite vector store and hardcoded Wiki Memory (~1 week of effort)
-- [ ] Implement the docs-first learning loop
+- [ ] Implement the docs-first learning loop in plain Rust — no LangChain
 - [ ] Add web search for research
 - [ ] Integrate MCP tool servers — Docker on desktop and server, local processes under Termux
 - [ ] Model layer — OpenRouter by default, optional Ollama for local models, one OpenAI-style client
 - [ ] MCP sync servers — GitHub for versioned Wiki Memory, rclone for Proton Drive
 - [ ] Support customizable agents via `AGENT.md`
-- [ ] Package the single PyInstaller executable for desktop, server, and Termux (aarch64)
+- [ ] Compile the single Rust binary for both targets and publish two release folders — `android-arm/` and `pc/`
 - [ ] Ship the Termux install script — prerequisites, best-effort Docker, binary from Releases
 - [ ] Prove it end to end in Termux on Android: one-command install, learn a tool, sync, self-replicate
