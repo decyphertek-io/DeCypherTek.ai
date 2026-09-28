@@ -193,7 +193,13 @@ flowchart TB
 
 ### The Stack
 
-Rust end to end, deliberately small: `ureq` (HTTPS with rustls), `rusqlite` (bundled SQLite), `aes-gcm` + `argon2` + `getrandom` (the vault), `tar` + `flate2` (seal format + log rotation), `dialoguer` + `console` (TUI). No tokio, no async, no LangChain, no ML stack — the loop is plain owned code. Everything cross-compiles static; CI is `cargo test` on Linux + macOS with clippy + fmt gating.
+Rust end to end, deliberately small: `ureq` (HTTPS with rustls), `rusqlite` (bundled SQLite), `aes-gcm` + `argon2` + `getrandom` (the vault), `tar` + `flate2` (seal format + log rotation), `dialoguer` + `console` (TUI). No tokio, no async, no LangChain, no ML stack — the loop is plain owned code.
+
+- **No Python, no LangChain.** The docs-first learning loop is deliberately small — prompt the model, run the tool, chunk the result, update the wiki. A framework would outweigh the app; in Rust it is just code in one binary.
+- **Crates, not ecosystems.** One HTTP client for the model backends and web search, one SQLite binding for the vector store, one markdown writer for Wiki Memory — small crates, nothing dragging an ML stack behind them.
+- **Cross-compiled, not ported.** Every target comes from the identical codebase: aarch64 musl for Termux (the old `android-arm/` idea), x86_64 musl for PCs (`pc/`), darwin for Macs. No maintained divergence, no separate fork for Termux.
+
+Everything cross-compiles static; CI is `cargo test` on Linux + macOS with clippy + fmt gating.
 
 ## Development
 
