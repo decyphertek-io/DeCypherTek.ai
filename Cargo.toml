@@ -1,0 +1,33 @@
+[package]
+name = "decyphertek"
+version = "0.1.0"
+edition = "2021"
+description = "DeCypherTek.ai — a customizable, self-learning AI agent in one Rust binary. Termux first."
+license = "MIT"
+repository = "https://github.com/decyphertek-io/DeCypherTek.ai"
+
+[[bin]]
+name = "decyphertek"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ureq = { version = "2.10", features = ["json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tar = "0.4"
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+aes-gcm = "0.10"
+argon2 = "0.5"
+getrandom = "0.2"
+dialoguer = "0.11"
+console = "0.15"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+opt-level = "s"
+codegen-units = 1
+panic = "abort"

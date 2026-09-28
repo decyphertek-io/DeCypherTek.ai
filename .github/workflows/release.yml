@@ -1,0 +1,172 @@
+# DeCypherTek.ai — Release pipeline.
+#
+# Manual dispatch: Actions → Release → Run workflow. Builds the single
+# Rust static binary for every target, packages per-target tar.gz assets
+# with SHA-256 checksums, and publishes a GitHub Release. The install
+# script pulls `releases/latest`, so every dispatch is instantly the
+# version a phone or PC installs — and re-running the installer updates.
+#
+# Targets:
+#   aarch64-unknown-linux-musl  -> Termux on Android (64-bit) + ARM Linux
+#   armv7-unknown-linux-musleabihf -> older 32-bit Android phones
+#   x86_64-unknown-linux-musl   -> PCs, servers (pc/)
+#   aarch64/x86_64-apple-darwin -> macOS
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (empty = v<version from Cargo.toml>)"
+        required: false
+        default: ""
+      notes:
+        description: "Release notes (shown on the release page)"
+        required: false
+        default: "New release of DeCypherTek.ai — run the install command to get it: curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-linux-musl
+          - armv7-unknown-linux-musleabihf
+          - x86_64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Build (static musl)
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Smoke test the binary
+        run: |
+          chmod +x target/${{ matrix.target }}/release/decyphertek
+          if [[ "${{ matrix.target }}" == x86_64-* ]]; then
+            target/${{ matrix.target }}/release/decyphertek --version
+            target/${{ matrix.target }}/release/decyphertek --help
+          else
+            echo "host-runnable smoke test skipped for ${{ matrix.target }} (cross-arch)"
+          fi
+
+      - name: Package
+        run: |
+          mkdir -p pkg dist
+          cp target/${{ matrix.target }}/release/decyphertek pkg/decyphertek
+          cp LICENSE pkg/
+          tar -czf dist/decyphertek-${{ matrix.target }}.tar.gz -C pkg decyphertek LICENSE
+          ( cd dist && sha256sum decyphertek-${{ matrix.target }}.tar.gz > decyphertek-${{ matrix.target }}.tar.gz.sha256 )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  build-macos:
+    name: build ${{ matrix.target }}
+    runs-on: macos-14
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Smoke test the binary
+        run: |
+          target/${{ matrix.target }}/release/decyphertek --version
+          target/${{ matrix.target }}/release/decyphertek --help
+
+      - name: Package
+        run: |
+          mkdir -p pkg dist
+          cp target/${{ matrix.target }}/release/decyphertek pkg/decyphertek
+          cp LICENSE pkg/
+          tar -czf dist/decyphertek-${{ matrix.target }}.tar.gz -C pkg decyphertek LICENSE
+          ( cd dist && shasum -a 256 decyphertek-${{ matrix.target }}.tar.gz > decyphertek-${{ matrix.target }}.tar.gz.sha256 )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            VER="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+            TAG="v${VER}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Gather artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Merge checksums
+        run: |
+          cd dist
+          cat *.sha256 > checksums.txt
+          rm -f *.sha256
+          ls -la
+          cat checksums.txt
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          NOTES="$(cat <<'EOF'
+          ${{ github.event.inputs.notes }}
+          EOF
+          )"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — updating assets (--clobber)."
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "DeCypherTek.ai $TAG" \
+              --notes "$NOTES" \
+              --latest
+          fi
