@@ -15,12 +15,14 @@ The whole thing is one PyInstaller executable — the same binary runs on your d
 - Knowledge is custom: you provide the docs and technical knowledge it works from.
 - Tools speak MCP — in Docker containers on desktop and server, as local processes under Termux on Android.
 - Web search is built in for research.
+- Its brain is pluggable but stays simple: OpenRouter by default — one lightweight API key for every hosted model — or your own Ollama if you want local models. Nothing else is supported, on purpose.
 - It can sync itself through sync MCP servers — Wiki Memory as a git repo on GitHub, the data directory backed up to Proton Drive via rclone.
 - One binary for every platform, which also makes self-replication easy — and one command installs it on Termux.
 
 ## Core Ideas
 
 - **Customizable.** It can be used for anything. Behavior comes from a customizable `AGENT.md`, knowledge comes from the docs you provide, and tools come from MCP servers — swap any of them and it is a different agent.
+- **Models: OpenRouter or Ollama.** OpenRouter is the default — lightweight, nothing to install, one API key for any hosted model, which suits a phone perfectly. If you have Ollama, the agent can run your local models instead. Those two and no others, on purpose: both speak OpenAI-style HTTP, so one thin client covers the whole model layer.
 - **Memory.** Wiki Memory and a Vector DB give the LLM a real memory — it can learn, retain what it learns, and carry custom knowledge across runs.
 - **Custom knowledge.** The agent has access to the technical knowledge and docs you provide, chunked into memory, so it works on your stack and in your domain.
 - **SQLite vector store.** A vector is just a DB — it chunks knowledge so docs can be searched quickly. Simple to build, no external database service required.
@@ -47,6 +49,11 @@ flowchart TB
         Wiki[("Wiki Memory<br/>markdown knowledge base")]
     end
 
+    subgraph Models["Model backends - one OpenAI-style client"]
+        OpenRouter["OpenRouter<br/>default - hosted models, one API key"]
+        Ollama["Ollama<br/>optional - local models"]
+    end
+
     subgraph Tools["Tool layer - MCP"]
         Docker["Docker MCP containers<br/>(desktop and server)"]
         Native["MCP processes in Termux<br/>(no Docker on Android)"]
@@ -62,6 +69,8 @@ flowchart TB
     You -->|your docs and knowledge| Memory
     Memory -->|retrieved context| Orchestrator
     Orchestrator -->|chunk learnings and update wiki| Memory
+    Orchestrator -->|prompts| Models
+    Models -->|completions| Orchestrator
     Orchestrator -->|tool calls| Tools
     Tools -->|results, research, learnings| Orchestrator
     Orchestrator -->|backup and sync| Sync
@@ -74,6 +83,7 @@ flowchart TB
 | Component | Role |
 | --- | --- |
 | **LLM Orchestrator** | Planning, reasoning, and driving the loop below. |
+| **Model backend** | OpenRouter by default (any hosted model, one API key) or your own Ollama for local models — chosen per agent in `AGENT.md`. |
 | **`AGENT.md`** | Customizable per-agent definition; behavior without code. |
 | **SQLite Vector Store** | Chunked knowledge for fast semantic search. |
 | **Wiki Memory** | Markdown knowledge base; hardcoded baseline plus everything the agent writes back. |
@@ -99,6 +109,14 @@ Sync is just MCP tool calls that move the agent's one data directory, so the sam
 - **Proton Drive (rclone MCP server).** Proton Drive has no public API to build on, but rclone speaks it — an MCP server wrapping rclone syncs the whole data directory (Wiki Memory + vector store) as a backup.
 - **Anywhere, container or not.** Both sync providers are MCP tool servers like any other: Docker containers on desktop and server, plain `git` and `rclone` under Termux — it works equally well on a phone.
 
+### Models
+
+Two backends, deliberately — anything more would break the simple rule:
+
+- **OpenRouter is the default.** One API key, every hosted model, nothing to install or run. A phone cannot run a frontier model, but it can always ask one — which keeps the Termux build genuinely lightweight: an HTTPS call is all the phone has to make. Pick the model per agent in `AGENT.md` — something cheap and fast for routine passes, something heavyweight for hard reasoning.
+- **Ollama is optional.** Install Ollama and the agent runs your own local models instead — fully local, no API key, no per-token cost. It sits on your desktop or server; a phone in Termux can reach an Ollama on your LAN when you want zero-cloud runs.
+- **Why only these two.** OpenRouter and Ollama both expose OpenAI-style HTTP, so the orchestrator carries exactly one thin model client: swap the base URL and key and the same binary runs cloud or local. That is the entire model layer — kept small on purpose.
+
 ## Termux on Android
 
 The phone is a first-class platform, not an afterthought. Everything is just one PyInstaller executable, and it runs in Termux:
@@ -106,6 +124,7 @@ The phone is a first-class platform, not an afterthought. Everything is just one
 - **One binary.** The agent, its memory engine, and the bundled baseline docs are a single onefile binary built for aarch64 — no Python toolchain, no pip installs. The install script below fetches it plus the few helpers Termux needs.
 - **Local-first memory.** No external database or hosted service is required — the SQLite vector store and Wiki Memory are just files in the agent's data directory on the phone. That is the whole reason the memory design stays this simple: it has to run on a phone.
 - **Tools over MCP.** Docker does not run natively on Android, so MCP tool servers run as local processes inside Termux — or in a proot-based Docker install where the device kernel allows it, or against your desktop's Docker over SSH. The same servers run containerized on desktop and server.
+- **A phone-sized brain.** The phone never runs the model — OpenRouter is the default backend, so the phone just makes lightweight API calls to whatever hosted model you pick. Install Ollama on your desktop and the same binary goes fully local instead.
 - **Research in your pocket.** Web search gives the phone everything it does not already carry; the findings get chunked into memory for next time.
 - **Replication is a copy plus a sync.** Pull the binary from Releases, restore the memory from GitHub or Proton Drive — brand-new device, same learned agent.
 
@@ -132,6 +151,7 @@ Everything the script does, the agent can also do for itself — the script just
 - [ ] Implement the docs-first learning loop
 - [ ] Add web search for research
 - [ ] Integrate MCP tool servers — Docker on desktop and server, local processes under Termux
+- [ ] Model layer — OpenRouter by default, optional Ollama for local models, one OpenAI-style client
 - [ ] MCP sync servers — GitHub for versioned Wiki Memory, rclone for Proton Drive
 - [ ] Support customizable agents via `AGENT.md`
 - [ ] Package the single PyInstaller executable for desktop, server, and Termux (aarch64)
