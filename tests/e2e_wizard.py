@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""E2E: drive the full first-launch wizard over a pty with settle-based pacing.
+
+Usage: HOME=<scratch> python3 tests/e2e_wizard.py
+Must run with a FRESH HOME (the script asserts no vault exists yet).
+"""
+import os, pty, sys, time, select, subprocess, re
+
+BIN = os.path.join(os.path.dirname(__file__), "..", "target", "release", "decyphertek")
+HOME = os.environ["HOME"]
+VAULT = os.path.join(HOME, ".decyphertek.ai", "vault.dct")
+STAGING = os.path.join(HOME, ".decyphertek.ai", "staging")
+
+if os.path.exists(VAULT):
+    print("vault already exists — wipe HOME first"); sys.exit(2)
+
+def spawn(args):
+    env = dict(os.environ); env["TERM"] = "xterm-256color"
+    m, s = pty.openpty()
+    p = subprocess.Popen([BIN] + args, stdin=s, stdout=s, stderr=s, env=env, cwd=HOME, close_fds=True)
+    os.close(s)
+    return m, p
+
+buf = b""
+def drain(t=1.0):
+    global buf
+    end = time.time() + t
+    while time.time() < end:
+        r, _, _ = select.select([m], [], [], 0.2)
+        if r:
+            try: buf += os.read(m, 65536)
+            except OSError: break
+
+def send(text):
+    os.write(m, text.encode())
+
+FAIL = []
+def check(cond, name):
+    print(("PASS " if cond else "FAIL ") + name)
+    if not cond: FAIL.append(name)
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+def text():
+    return ANSI.sub("", buf.decode(errors="replace"))
+
+print("=== 1. first launch: fresh HOME -> wizard ===")
+m, p = spawn([])
+drain(2.5)                     # banner + welcome + persona select
+out = text()
+check("Choose a persona" in out, "persona prompt")
+send("\r")                     # default persona
+drain(1.5)                     # backend select
+send("\r")                     # OpenRouter
+drain(1.5)                     # api key password prompt
+send("sk-or-v1-dummy-key-e2e\r")
+drain(6.0)                     # model select + live probe
+out = text()
+check("Default model" in out, "model prompt shown")
+send("\r")                     # gpt-4o-mini
+drain(1.5)                     # memory folders question
+send("\r")                     # empty -> no grant question, no leash skip
+drain(1.5)
+out = text()
+check("The Leash" in out or "leash" in out.lower(), "leash prompt appeared")
+send("\r")                     # leashed
+drain(1.5)                     # tool multiselect
+send("\r")                     # defaults: web_search + read_files
+drain(3.0)                     # next: fresh-install password
+out = text()
+check("Vault password" in out, "new vault password prompt")
+send("e2e-password-123\r")
+drain(2.0)
+out = text()
+check("Repeat" in out, "password repeat prompt")
+send("e2e-password-123\r")
+drain(3.0)                     # seal + exit
+out = text()
+check("Sealed" in out, "seal confirmation")
+
+rc = p.wait(timeout=10)
+check(rc == 0, "process exited cleanly")
+check(os.path.exists(VAULT), "vault.dct exists")
+check(not os.path.exists(STAGING), "staging wiped")
+
+with open(VAULT, "rb") as f:
+    hdr = f.read(8)
+check(hdr == b"DCTVAULT", "vault magic header")
+
+print("\n=== 2. second launch: unlock, shell, seal ===")
+m, p = spawn([])
+drain(2.5)
+out = text()
+check("Vault password" in out, "unlock prompt")
+check("DeCypherTek" in out, "banner on launch")
+send("wrong-password-XXX\r")
+drain(2.0)
+out = text()
+check("Wrong password" in out, "wrong password rejected")
+send("e2e-password-123\r")
+drain(2.0)
+out = text()
+check("UNSEALED" in out, "vault unsealed banner")
+
+send("@status\r")
+drain(1.5)
+out = text()
+check("persona" in out and "openrouter" in out, "@status shows persona + backend")
+check("leashed" in out, "@status shows leash")
+
+send("@wiki list\r")
+drain(1.5)
+out = text()
+check("operative-handbook" in out, "baseline wiki present in vault")
+
+send("@leash unleashed\r")
+drain(1.5)
+out = text()
+check("off" in out, "@leash switches to unleashed")
+send("@leash leashed\r")
+drain(1.0)
+
+send("exit\r")
+drain(2.5)
+out = text()
+check("Sealed" in out, "seal on exit")
+rc = p.wait(timeout=10)
+check(rc == 0, "clean exit")
+check(not os.path.exists(STAGING), "staging wiped after exit")
+
+print(f"\n{'ALL PASS' if not FAIL else 'FAILURES: ' + str(FAIL)}")
+sys.exit(0 if not FAIL else 1)
