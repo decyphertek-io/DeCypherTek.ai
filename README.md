@@ -1,5 +1,8 @@
 # DeCypherTek.ai
 
+> **Status: Research & Development — Phase 1.**
+> This is just the working architecture document — nothing is built yet, and everything here is subject to change.
+
 A customizable, self-learning AI agent. It is taught to read the docs before it uses a tool, remember what it learns, search the web to do research, run its tools over MCP, and ship as one PyInstaller executable that runs anywhere — including Termux on Android.
 
 *Decoding technology, so you don't have to.*
