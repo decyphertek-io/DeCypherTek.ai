@@ -3,8 +3,10 @@
 #
 # Termux first: on Android the agent gets a proot Arch Linux home. Docker
 # does not work in Termux proper (no root), so the installer bootstraps
-# `proot-distro` Arch Linux, installs the decyphertek binary AND Docker
-# inside it (best-effort daemon start included), and the `decyphertek`
+# `proot-distro` Arch Linux (an Arch Linux ARM image on ARM devices —
+# the official archlinux image is amd64-only), installs the decyphertek
+# binary AND Docker inside it (best-effort daemon start included), and
+# the `decyphertek`
 # command becomes a wrapper that drops you straight into the proot Arch.
 # There you get a regular terminal that passes through everything typed
 # except @-commands — @chat / @code / @research / @store wake the agent.
@@ -83,15 +85,57 @@ echo
 # home becomes a proot Arch Linux where Docker CAN be installed, and the
 # daemon is started with bridge/iptables off (proot-safe mode). @store's
 # MCP servers then run in hardened containers — network=none anyway.
-termux_proot_home() {
-  PD_ROOT="${PREFIX}/var/lib/proot-distro/installed-rootfs/${PROOT_DISTRO}"
 
+# proot-distro v5+ pulls OCI images and keeps the rootfs under
+# containers/<name>/rootfs; v4 used plugin tarballs under
+# installed-rootfs/<name>. Support both layouts so fresh installs and
+# proot-distro upgrades keep working.
+pd_locate_rootfs() {
+  PD_ROOT=""
+  local cand
+  for cand in \
+    "${PREFIX}/var/lib/proot-distro/containers/${PROOT_DISTRO}/rootfs" \
+    "${PREFIX}/var/lib/proot-distro/installed-rootfs/${PROOT_DISTRO}"; do
+    if [[ -d "$cand" ]]; then
+      PD_ROOT="$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# The official `archlinux` image is amd64-only, so on ARM devices
+# `proot-distro install archlinux` fails with "No image found for
+# architecture 'arm64' in 'archlinux'" (termux/proot-distro#672). There
+# we install an Arch Linux ARM image instead — the proot-distro
+# maintainers' recommendation — keeping the local container name
+# `archlinux` so the rest of the flow is unchanged. Older proot-distro
+# (v4) only understands plugin aliases (no registry refs, no --name),
+# and its `archlinux` plugin already ships Arch Linux ARM on ARM hosts.
+pd_install_arch() {
+  local -a imgs
+  case "$(uname -m)" in
+    aarch64|arm*) imgs=("menci/archlinuxarm" "arfshl/archlinuxarm") ;;
+    *)            imgs=("archlinux") ;;
+  esac
+  local img
+  for img in "${imgs[@]}"; do
+    say "Installing the Arch rootfs image: $img…"
+    proot-distro install "$img" --name "$PROOT_DISTRO" >/dev/null 2>&1 && return 0
+  done
+  # proot-distro v4 fallback: plain plugin alias.
+  proot-distro install "$PROOT_DISTRO" >/dev/null 2>&1
+}
+
+termux_proot_home() {
   say "Setting up the proot Arch Linux home for the agent (this is where"
   say "Docker — and therefore MCP tool servers from @store — can live)…"
 
-  if [[ ! -d "$PD_ROOT" ]]; then
-    proot-distro install "$PROOT_DISTRO" >/dev/null 2>&1 \
-      || die "proot-distro install $PROOT_DISTRO failed — re-run to retry."
+  if ! pd_locate_rootfs; then
+    pd_install_arch \
+      || die "proot-distro could not install an Arch rootfs — run 'pkg upgrade' and re-run."
+    pd_locate_rootfs \
+      || die "arch rootfs not found after install — re-run to retry."
     ok "arch linux rootfs installed"
   else
     ok "arch linux rootfs already present"
@@ -154,7 +198,7 @@ WRAP
       && ok "docker installed inside arch" \
       || warn "pacman could not install docker — @store will report details."
   else
-    warn "pacman not found in rootfs — run proot-distro reinstall $PROOT_DISTRO"
+    warn "pacman not found in rootfs — run proot-distro reset $PROOT_DISTRO"
   fi
 
   # Try the daemon once, inside ONE proot session (a daemon dies with its
