@@ -1,8 +1,8 @@
 # Termux Playbook
 
 DeCypherTek runs on Android with a proot Debian Linux home — a single static
-musl binary, no root, with Docker (and MCP tool servers from `@store`)
-inside the proot container.
+musl binary, no root, with podman containers (and MCP tool servers from
+`@store`) inside the proot container.
 
 ## Install (one command, same as anywhere)
 
@@ -10,36 +10,60 @@ inside the proot container.
 
 The script auto-detects aarch64/armv7 and on Termux bootstraps a proot
 Debian Linux home — nothing of the agent is downloaded into Termux itself.
+The Debian instance is custom-named `decyphertek`
+(`proot-distro install debian --override-alias decyphertek`), so a Debian
+proot installed by hand under the plain `debian` alias is never touched.
 Everything happens inside the Debian container, in order:
 
-- the proot Debian rootfs is installed by `proot-distro` first;
+- the proot Debian rootfs is installed by `proot-distro` first, under the
+  dedicated `decyphertek` instance name;
 - inside it: `apt update`, then
-  `apt install -y docker.io docker-compose curl gnupg ca-certificates`
-  (best-effort; some kernels refuse the daemon);
+  `apt install -y podman podman-docker podman-compose curl gnupg ca-certificates`;
+- the vfs storage driver is written to `/etc/containers/storage.conf`
+  (proot cannot mount overlayfs, so podman's default overlay driver would
+  fail);
 - LAST, inside the container: the latest release binary is downloaded and
   installed at `/usr/local/bin/decyphertek.ai`;
 - a sourced alias lands in `~/.bashrc` — typing `decyphertek.ai` from a
-  Termux prompt enters the proot Debian and starts the agent there, with
-  dockerd started automatically using `--iptables=false --bridge=none
-  --storage-driver=vfs` (proot-safe mode — proot cannot mount
-  overlayfs, so the default storage driver would die at boot);
+  Termux prompt enters the proot Debian and starts the agent there;
 - the installer ends by running `decyphertek.ai` itself, so a fresh
   install drops straight into the first-run walkthrough.
 - The vault stays in real Termux home (`~/.decyphertek.ai`) and is
   bind-mounted in, so it survives container reinstalls; `/sdcard` and
   the rest of shared storage are bound by proot-distro itself.
 
+## Why podman, not docker+dockerd
+
+- dockerd cannot boot reliably under proot on Android: its default
+  overlay storage driver wants an overlayfs mount proot will never
+  provide, and a daemon lives and dies with the proot session that
+  started it. Podman is daemonless — nothing to boot, nothing to nurse.
+- `podman-docker` installs a docker-compatible CLI, so the agent's
+  @store keeps issuing plain `docker` commands unchanged.
+
+## Uninstall (one command)
+
+    curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash
+
+Removes exactly what the installer created: the `decyphertek` Debian
+proot instance, the launcher, and the alias (legacy instances older
+installers left under `debian`/`archlinux` only go when they carry the
+DeCypherTek fingerprint — your own proots stay). The encrypted vault in
+`~/.decyphertek.ai` holds your agent and is kept; append `--purge` (via
+`bash -s -- --purge`) to wipe it too.
+
 ## Why it works on a phone
 
 - One static binary (aarch64-unknown-linux-musl): no runtime to install.
 - Memory is two files in the vault: SQLite + markdown. No external DB.
 - The brain is OpenRouter by default — the phone only makes HTTPS calls.
-- MCP tool servers from `@store` run in hardened Docker containers inside
+- MCP tool servers from `@store` run in hardened containers inside
   the proot Debian: `--network=none`, all capabilities dropped — they can
   only ever answer the agent over stdio.
-- If this device's kernel refuses dockerd (proot limits), the agent runs
-  everything else natively; point `DOCKER_HOST` at a LAN machine for
-  @store servers, or re-run on a device where the daemon comes up.
+- If this device's kernel refuses the container runtime outright (proot
+  limits), the agent runs everything else natively; @store still lists
+  and registers servers, so a kernel that permits them (or a host that
+  does) can launch them.
 
 ## Optional: local models with Ollama
 
