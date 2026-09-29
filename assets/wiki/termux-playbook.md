@@ -1,6 +1,6 @@
 # Termux Playbook
 
-DeCypherTek runs on Android with a proot Arch Linux home — a single static
+DeCypherTek runs on Android with a proot Debian Linux home — a single static
 musl binary, no root, with Docker (and MCP tool servers from `@store`)
 inside the proot container.
 
@@ -8,14 +8,22 @@ inside the proot container.
 
     curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash
 
-The script auto-detects aarch64/armv7, downloads the latest release
-binary, and on Termux bootstraps a proot Arch Linux home:
+The script auto-detects aarch64/armv7 and on Termux bootstraps a proot
+Debian Linux home — nothing of the agent is downloaded into Termux itself.
+Everything happens inside the Debian container, in order:
 
-- `proot-distro` Arch gets the binary at `/usr/local/bin/decyphertek`
-  and Docker via pacman (best-effort; some kernels refuse the daemon).
-- The `decyphertek` command in Termux becomes a wrapper that enters
-  the proot Arch and starts the agent there — dockerd is started
-  automatically with `--iptables=false --bridge=none` (proot-safe mode).
+- the proot Debian rootfs is installed by `proot-distro` first;
+- inside it: `apt update`, then
+  `apt install -y docker.io docker-compose curl gnupg ca-certificates`
+  (best-effort; some kernels refuse the daemon);
+- LAST, inside the container: the latest release binary is downloaded and
+  installed at `/usr/local/bin/decyphertek.ai`;
+- a sourced alias lands in `~/.bashrc` — typing `decyphertek.ai` from a
+  Termux prompt enters the proot Debian and starts the agent there, with
+  dockerd started automatically using `--iptables=false --bridge=none`
+  (proot-safe mode);
+- the installer ends by running `decyphertek.ai` itself, so a fresh
+  install drops straight into the first-run walkthrough.
 - The vault stays in real Termux home (`~/.decyphertek.ai`) and is
   bind-mounted in, so it survives container reinstalls; `/sdcard` is
   mounted at `/sdcard` when present.
@@ -26,7 +34,7 @@ binary, and on Termux bootstraps a proot Arch Linux home:
 - Memory is two files in the vault: SQLite + markdown. No external DB.
 - The brain is OpenRouter by default — the phone only makes HTTPS calls.
 - MCP tool servers from `@store` run in hardened Docker containers inside
-  the proot Arch: `--network=none`, all capabilities dropped — they can
+  the proot Debian: `--network=none`, all capabilities dropped — they can
   only ever answer the agent over stdio.
 - If this device's kernel refuses dockerd (proot limits), the agent runs
   everything else natively; point `DOCKER_HOST` at a LAN machine for
