@@ -9,7 +9,6 @@ const CYAN: &str = "\x1b[36m";
 const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
-const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 
 fn paint(color: &str, text: &str) -> String {
@@ -51,11 +50,6 @@ pub fn panel(title: &str, body: &str, color: &str) {
     println!("{}", paint(color, &format!("└{}┘", "─".repeat(inner))));
 }
 
-/// Stats line outside the report body so words never get box-split.
-pub fn report_stat(title: &str, stat: &str) {
-    println!("{} {}", paint(DIM, &format!("{title}:")), paint(DIM, stat));
-}
-
 pub fn report(title: &str, body: &str) {
     panel(title, body, CYAN);
 }
@@ -90,13 +84,12 @@ pub fn banner(version: &str) {
     println!("{}", paint(CYAN, &format!("╚{}╝", "═".repeat(w - 2))));
 }
 
-/// Small prompt for the @-shell: `dct <status> >`.
-pub fn draw_prompt(status: &str) {
+/// Prompt for the @-shell: a classic terminal look — `decyphertek.ai:~$ `.
+pub fn draw_prompt(cwd: &str) {
     print!(
-        "{} {} {} ",
-        paint(BOLD, &paint(CYAN, "dct")),
-        paint(DIM, status),
-        paint(BOLD, ">")
+        "{}:{}$ ",
+        paint(GREEN, "decyphertek.ai"),
+        paint(CYAN, cwd),
     );
     use std::io::Write;
     let _ = std::io::stdout().flush();

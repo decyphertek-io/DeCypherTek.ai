@@ -42,9 +42,6 @@ const MODE_RULES: &[(&str, &str)] = &[
 
 pub struct RunResult {
     pub report: String,
-    pub tool_calls: usize,
-    pub iterations: usize,
-    pub elapsed_secs: u64,
     /// Session-level notes for the shell to surface after the report
     /// (e.g. MCP servers that failed to launch this run).
     pub warnings: Vec<String>,
@@ -192,6 +189,17 @@ pub fn run(
     }
 
     log.log("report", &truncate(&report, 6000));
+    // Run stats go to the forensic chatlog, not the screen: the terminal
+    // stays classic — the screen shows only the report.
+    log.log(
+        "run_stats",
+        &format!(
+            "run: {}s | tool calls: {} | iterations: {}",
+            started.elapsed().as_secs(),
+            tool_calls,
+            iterations.min(MAX_ITERS),
+        ),
+    );
     // The run itself is knowledge: chunk the report into memory.
     if !report.trim().is_empty() {
         let _ = vectors.insert_text(
@@ -207,9 +215,6 @@ pub fn run(
     // Registered MCP containers die with the run (Drop in src/store.rs).
     Ok(RunResult {
         report,
-        tool_calls,
-        iterations: iterations.min(MAX_ITERS),
-        elapsed_secs: started.elapsed().as_secs(),
         warnings,
     })
 }
