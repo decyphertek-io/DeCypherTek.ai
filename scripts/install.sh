@@ -301,11 +301,11 @@ ok "Debian: podman podman-docker podman-compose curl gnupg ca-certificates ready
 say "Debian: downloading the latest DeCypherTek.ai release (last step)…"
 GH_API="https://api.github.com/repos/$REPO/releases"
 if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/latest" 2>/dev/null)"; then
-  die "No releases yet. Trigger the Release workflow (Actions → Release → Run workflow) or build with: cargo install --path ."
+  die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
 fi
 TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
 if [[ -z "$TAG" ]]; then
-  die "No releases yet. Trigger the Release workflow (Actions → Release → Run workflow) or build with: cargo install --path ."
+  die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
 fi
 ASSET_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^"]*decyphertek-'"$TARGET"'.tar.gz' | head -1)"
 if [[ -z "$ASSET_URL" ]]; then
@@ -469,12 +469,12 @@ fetch_release() {
     AUTH=(-H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}")
   fi
   if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/latest" 2>/dev/null)"; then
-    die "No releases yet. Trigger the Release workflow (Actions → Release → Run workflow) or build with: cargo install --path ."
+    die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
   fi
 
   TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
   if [[ -z "$TAG" ]]; then
-    die "No releases yet. Trigger the Release workflow (Actions → Release → Run workflow) or build with: cargo install --path ."
+    die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
   fi
 
   ASSET_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^"]*/decyphertek-'"$TARGET"'.tar.gz' | head -1)"

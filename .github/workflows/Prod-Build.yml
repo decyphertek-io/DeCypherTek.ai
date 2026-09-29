@@ -1,6 +1,6 @@
-# DeCypherTek.ai — Release pipeline.
+# DeCypherTek.ai — Prod-Build pipeline.
 #
-# Manual dispatch: Actions → Release → Run workflow. Builds the single
+# Manual dispatch: Actions → Prod-Build → Run workflow. Builds the single
 # Rust static binary for every target, packages per-target tar.gz assets
 # with SHA-256 checksums, and publishes a GitHub Release. The install
 # script pulls `releases/latest`, so every dispatch is instantly the
@@ -12,7 +12,7 @@
 #   x86_64-unknown-linux-musl   -> PCs, servers (pc/)
 #   aarch64/x86_64-apple-darwin -> macOS
 
-name: Release
+name: Prod-Build
 
 on:
   workflow_dispatch:

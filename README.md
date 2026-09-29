@@ -132,7 +132,7 @@ Grant and revoke live, in the shell: `@grants read ~/projects`, `@grants write ~
 
 ## Releases
 
-The **Release** workflow is manual dispatch: *Actions → Release → Run workflow* — optionally set a tag (default is `v<version from Cargo.toml>`) and notes. It cross-compiles the single binary for every target, packages + checksums them, and publishes a GitHub Release. The install script pulls `releases/latest`, so every release instantly becomes what a phone or PC installs, and the installer doubles as the updater.
+The **Prod-Build** workflow is manual dispatch: *Actions → Prod-Build → Run workflow* — optionally set a tag (default is `v<version from Cargo.toml>`) and notes. It cross-compiles the single binary for every target, packages + checksums them, and publishes a GitHub Release. The install script pulls `releases/latest`, so every release instantly becomes what a phone or PC installs, and the installer doubles as the updater.
 
 | Asset (from `releases/latest`) | Runs on | Conceptual folder |
 | --- | --- | --- |
