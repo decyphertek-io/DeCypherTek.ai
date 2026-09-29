@@ -27,10 +27,10 @@ const HELP: &str = "\
 DeCypherTek.ai — a customizable, self-learning AI agent in one Rust binary.
 
 USAGE:
-  decyphertek            launch the @-shell (asks vault password, decrypts memory)
-  decyphertek setup      run the first-time walkthrough wizard (persona, brain, grants)
-  decyphertek --help     this help
-  decyphertek --version  print version
+  decyphertek.ai         launch the @-shell (asks vault password, decrypts memory)
+  decyphertek.ai setup   run the first-time walkthrough wizard (persona, brain, grants)
+  decyphertek.ai --help  this help
+  decyphertek.ai --version  print version
 
 Everything lives encrypted in ~/.decyphertek.ai/vault.dct; it is decrypted
 for the session on launch and sealed again on exit. Inside the shell, type
@@ -51,7 +51,7 @@ fn try_main() -> Result<()> {
             Ok(())
         }
         Some("--version") | Some("-V") => {
-            println!("decyphertek {}", env!("CARGO_PKG_VERSION"));
+            println!("decyphertek.ai {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Some("setup") | Some("wizard") => cmd_setup(),
@@ -59,7 +59,7 @@ fn try_main() -> Result<()> {
     }
 }
 
-/// `decyphertek setup`: wizard first, then optionally launch the shell.
+/// `decyphertek.ai setup`: wizard first, then optionally launch the shell.
 fn cmd_setup() -> Result<()> {
     let paths = Paths::from_home().context("locate home directory")?;
     std::fs::create_dir_all(&paths.root)
@@ -98,7 +98,7 @@ fn cmd_setup() -> Result<()> {
         vault::seal(&paths, &k, &s)?;
         tui::info(
             "VAULT",
-            "Sealed and encrypted ~/.decyphertek.ai/vault.dct. Launch with: decyphertek",
+            "Sealed and encrypted ~/.decyphertek.ai/vault.dct. Launch with: decyphertek.ai",
         );
         return Ok(());
     }
@@ -107,11 +107,11 @@ fn cmd_setup() -> Result<()> {
     let k = key.unwrap();
     let s = salt.unwrap();
     vault::seal(&paths, &k, &s)?;
-    tui::info("VAULT", "Vault re-sealed. Launch with: decyphertek");
+    tui::info("VAULT", "Vault re-sealed. Launch with: decyphertek.ai");
     Ok(())
 }
 
-/// `decyphertek` — the normal flow: detect setup state, run the walkthrough
+/// `decyphertek.ai` — the normal flow: detect setup state, run the walkthrough
 /// automatically on a fresh install, and land in the @-shell either way.
 fn cmd_run() -> Result<()> {
     let paths = Paths::from_home().context("locate home directory")?;
@@ -130,7 +130,7 @@ fn cmd_run() -> Result<()> {
         }
         if !std::io::stdin().is_terminal() {
             return Err(anyhow::anyhow!(
-                "no agent found — run `decyphertek setup` in a real terminal first"
+                "no agent found — run `decyphertek.ai setup` in a real terminal first"
             ));
         }
         let _ = std::fs::remove_dir_all(&paths.staging);
