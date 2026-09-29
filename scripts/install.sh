@@ -37,14 +37,29 @@
 # run in hardened containers that talk only to the agent (network=none,
 # cap-drop=ALL, stdio-only).
 #
-# On Linux/macOS: same single binary on PATH as `decyphertek.ai`, plus a
-# best-effort Docker setup so @store works there too.
+# On a PC the install is ONE folder: the release binary lands in
+# ~/.decyphertek.ai/bin/ — the same ~/.decyphertek.ai that already holds
+# vault.dct and staging/, so the whole agent (program + encrypted data)
+# is a single directory. A marked, removable PATH block in ~/.bashrc /
+# ~/.zshrc makes `decyphertek.ai` launchable from anywhere. What the
+# installer DOES along the way is picked by detection gates: Termux
+# (TERMUX), macOS (IS_MAC), which Linux flavor (DISTRO_ID — Debian,
+# Ubuntu, Fedora, Arch, openSUSE, Alpine …), which package manager
+# (PKG_MGR — apt-get / dnf / pacman / zypper / apk), which CPU
+# (ARCH -> the release asset). @store's plain `docker` commands are
+# served best-effort by daemonless podman + the podman-docker shim —
+# the same runtime the agent runs inside its proot home, so there is no
+# docker daemon to enable, start or babysit on a working desktop either.
 #
 # No separate setup step either way: the installer ends by launching
 # decyphertek.ai itself, the launcher detects a fresh install, runs the
 # walkthrough (OpenRouter/Ollama, the Leash, @store servers are
 # optional adds), and drops you in the @-shell after.
-# Re-run any time to update to the latest release.
+# Re-run any time to update — it asks again: do you want the Production
+# or the Experimental branch? (Production = releases/latest, the stable
+# Prod-Build output; Experimental = the newest dev-adminotaur prerelease.
+# Non-interactive runs take Production; pre-pick with `bash -s --
+# experimental` or DCT_CHANNEL=experimental.)
 # Removal, when you want it: scripts/uninstall.sh (vault kept unless
 # --purge).
 set -euo pipefail
@@ -62,15 +77,33 @@ ok()   { printf '\033[32m ✓\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m !\033[0m %s\n' "$*"; }
 die()  { printf '\033[31m x\033[0m %s\n' "$*" >&2; exit 1; }
 
+need() { command -v "$1" >/dev/null 2>&1; }
+
 case "$(uname -s)" in
   MSYS*|MINGW*|CYGWIN*) die "Windows is not supported by this installer yet." ;;
 esac
 
 # ---------------------------------------------------------------- platform
+# Boolean logic gates: what the installer runs on decides what it does.
+#   TERMUX=1  — Android/Termux: the agent's home becomes a proot Debian
+#               (containers need root-free podman); nothing of the agent
+#               is downloaded into Termux itself.
+#   IS_MAC=1  — binary + PATH only; runtime hint points at Docker Desktop.
+#   PC Linux  — the flavor (DISTRO_ID via /etc/os-release) and its
+#               package manager (PKG_MGR) pick the container-runtime
+#               package set; the install itself is ONE folder,
+#               ~/.decyphertek.ai, everywhere.
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 TERMUX=0
-if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == *com.termux* ]]; then TERMUX=1; fi
+IS_LINUX=0
+IS_MAC=0
+if [[ "$OS" == Linux ]];  then IS_LINUX=1; fi
+if [[ "$OS" == Darwin ]]; then IS_MAC=1; fi
+if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == *com.termux* ]]; then
+  TERMUX=1
+  IS_LINUX=1
+fi
 
 case "$OS/$ARCH" in
   Linux/aarch64|Linux/arm64) TARGET="aarch64-unknown-linux-musl" ;;
@@ -84,13 +117,104 @@ if [[ "$ARCH" == "armv8l" ]]; then
   warn "32-bit userspace on a 64-bit kernel — installing the armv7 build."
 fi
 
-say "DeCypherTek.ai installer — $OS/$ARCH -> $TARGET"
+# Which Linux flavor (absent on macOS/Termux): this is the diff between
+# an apt, a dnf, a pacman, a zypper and an apk install further down.
+DISTRO_ID=""
+DISTRO_PRETTY=""
+if [[ "$IS_LINUX" == 1 && "$TERMUX" != 1 && -r /etc/os-release ]]; then
+  DISTRO_ID="$(sed -n 's/^ID=//p' /etc/os-release | head -1 | tr -d '"')"
+  DISTRO_PRETTY="$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | head -1 | tr -d '"')"
+fi
 
-# ------------------------------------------------------------ prerequisites
-need() { command -v "$1" >/dev/null 2>&1; }
+# The package-manager gate drives every package install from here on
+# (prerequisites and the container runtime), so Debian vs Fedora vs Arch
+# each take their own command.
+PKG_MGR=""
+if [[ "$TERMUX" != 1 ]]; then
+  for _m in apt-get dnf yum pacman zypper apk brew; do
+    if need "$_m"; then
+      PKG_MGR="$_m"
+      break
+    fi
+  done
+fi
 
 if [[ "$TERMUX" == 1 ]]; then
-  say "Termux detected — updating packages…"
+  say "Detected: Termux on Android ($ARCH) -> $TARGET"
+  say "Install mode: proot-Debian agent home, containers on root-free podman."
+elif [[ "$IS_MAC" == 1 ]]; then
+  say "Detected: macOS ($ARCH) -> $TARGET"
+  say "Install mode: single binary into $DATA_DIR/bin + PATH."
+else
+  say "Detected: ${DISTRO_PRETTY:-Linux} ($ARCH) -> $TARGET"
+  say "Install mode: one folder — $DATA_DIR; runtime packages via ${PKG_MGR:-no package manager detected}."
+fi
+
+# ----------------------------------------------------------------- channel
+# Which build to install — asked exactly once, prominently:
+#   production   — releases/latest: the stable Prod-Build output every
+#                  phone and PC gets by default.
+#   experimental — the newest dev prerelease the 'dev-adminotaur'
+#                  testing branch publishes (tagged v<version>-dev.<sha>).
+# Non-interactive runs default to production. Pre-pick a side with the
+# first argument (curl -fsSL ... | bash -s -- experimental) or the
+# DCT_CHANNEL env var.
+CHANNEL="${1:-${DCT_CHANNEL:-}}"
+CHANNEL_PROMPT=0
+case "$CHANNEL" in
+  "") CHANNEL_PROMPT=1 ;;
+  production|Production|prod|stable)  CHANNEL="production" ;;
+  experimental|Experimental|dev|exp)  CHANNEL="experimental" ;;
+  *) die "unknown channel '$CHANNEL' — use 'production' or 'experimental'" ;;
+esac
+if [[ "$CHANNEL_PROMPT" == 1 ]]; then
+  # A terminal worth asking on: interactive stdout + a usable /dev/tty
+  # (| bash curl-piping keeps this true; cron/CI falls through cleanly).
+  if [[ -t 1 && -r /dev/tty && -w /dev/tty ]]; then
+    say "Two channels ship DeCypherTek.ai:"
+    echo "  1) Production   — the latest stable release (default: just press Enter)"
+    echo "  2) Experimental — the newest dev build from the 'dev-adminotaur' branch"
+    ans=""
+    printf 'Do you want the Production or Experimental branch? [P/e] '
+    read -r ans </dev/tty || true
+    case "${ans:-}" in
+      2|e|E|exp*|dev*|Experimental*) CHANNEL="experimental" ;;
+      *) CHANNEL="production" ;;
+    esac
+  else
+    CHANNEL="production"
+  fi
+fi
+if [[ "$CHANNEL" == experimental ]]; then
+  ok "Channel: experimental — newest 'dev-adminotaur' prerelease build."
+else
+  ok "Channel: production — latest stable release."
+fi
+
+# ------------------------------------------------------------ prerequisites
+# Packages go through whichever manager the gates detected — Debian's
+# apt, Fedora's dnf, Arch's pacman, openSUSE's zypper, Alpine's apk or
+# Homebrew on macOS — so the same installer is portable across flavors.
+SU=""
+if need sudo; then SU="sudo"; fi
+
+pkg_install() {  # $@ = packages -> rc 0 when the detected manager installed them
+  case "$PKG_MGR" in
+    apt-get)
+      ${SU} apt-get update -qq >/dev/null 2>&1 || true
+      ${SU} apt-get install -y -qq "$@" >/dev/null 2>&1 ;;
+    dnf)    ${SU} dnf install -y -q "$@" >/dev/null 2>&1 ;;
+    yum)    ${SU} yum install -y -q "$@" >/dev/null 2>&1 ;;
+    pacman) ${SU} pacman -S --noconfirm --needed "$@" >/dev/null 2>&1 ;;
+    zypper) ${SU} zypper --non-interactive install "$@" >/dev/null 2>&1 ;;
+    apk)    ${SU} apk add "$@" >/dev/null 2>&1 ;;
+    brew)   brew install "$@" >/dev/null 2>&1 ;;
+    *)      return 1 ;;
+  esac
+}
+
+if [[ "$TERMUX" == 1 ]]; then
+  say "Termux — updating packages…"
   pkg update -y >/dev/null 2>&1 || warn "pkg update hiccup; continuing"
   for pk in curl tar git openssh rclone coreutils proot-distro; do
     if ! need "$pk"; then
@@ -100,17 +224,22 @@ if [[ "$TERMUX" == 1 ]]; then
   # The release download happens inside the Debian container, so Termux
   # itself needs no curl for the install — only proot-distro is required.
   need proot-distro || die "proot-distro is required — run 'pkg install proot-distro' and re-run."
-elif [[ "$OS" == Linux ]] && need apt-get; then
-  say "Installing light prerequisites (curl, tar)…"
-  SU=""
-  need sudo && SU="sudo"
-  ${SU} apt-get update -qq >/dev/null 2>&1 || true
-  ${SU} apt-get install -y -qq curl tar >/dev/null 2>&1 || warn "apt hiccup; continuing"
+elif [[ -n "$PKG_MGR" ]] && { ! need curl || ! need tar; }; then
+  say "Installing prerequisites (curl, tar) via $PKG_MGR…"
+  pkg_install curl tar || warn "could not install prerequisites — continuing"
 fi
 if [[ "$TERMUX" != 1 ]]; then
   need curl || die "curl is required (install it and re-run)"
   need tar  || die "tar is required (install it and re-run)"
-  need sha256sum || warn "sha256sum missing — checksum verify will be skipped"
+  # checksum tool: Linux uses sha256sum, macOS uses shasum.
+  SUMTOOL=""
+  if need sha256sum; then
+    SUMTOOL="sha256sum"
+  elif need shasum; then
+    SUMTOOL="shasum -a 256"
+  else
+    warn "no sha256 tool found — checksum verify will be skipped"
+  fi
 fi
 echo
 
@@ -251,7 +380,7 @@ dct_write_bootstrap() {
     printf '# Order matters: apt update first, then the packages, and the\n'
     printf '# DeCypherTek.ai release download LAST.\n'
     printf 'set -euo pipefail\n\n'
-    printf 'REPO="%s"\nBIN_NAME="%s"\n' "$REPO" "$BIN_NAME"
+    printf 'REPO="%s"\nBIN_NAME="%s"\nCHANNEL="%s"\n' "$REPO" "$BIN_NAME" "$CHANNEL"
     if [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]]; then
       printf 'AUTH=(-H "Authorization: Bearer %s")\n' "${GH_TOKEN:-${GITHUB_TOKEN:-}}"
     else
@@ -296,16 +425,34 @@ if command -v podman >/dev/null 2>&1; then
 fi
 ok "Debian: podman podman-docker podman-compose curl gnupg ca-certificates ready"
 
-# 3) LAST — the latest DeCypherTek.ai release, downloaded and installed
-#    here inside the Linux container (not in Termux).
-say "Debian: downloading the latest DeCypherTek.ai release (last step)…"
+# 3) LAST — the chosen DeCyphertek.ai release, downloaded and installed
+#    here inside the Linux container (not in Termux). CHANNEL arrives
+#    from the outer installer: production -> releases/latest,
+#    experimental -> the newest v*-dev.* prerelease from the testing
+#    branch.
 GH_API="https://api.github.com/repos/$REPO/releases"
-if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/latest" 2>/dev/null)"; then
-  die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
-fi
-TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
-if [[ -z "$TAG" ]]; then
-  die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
+if [[ "$CHANNEL" == experimental ]]; then
+  say "Debian: finding the newest experimental dev release…"
+  if ! RELIST="$(curl -sSLf "${AUTH[@]}" "$GH_API?per_page=50" 2>/dev/null)"; then
+    die "could not list releases — check the network and re-run the installer."
+  fi
+  TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev\.[0-9a-f]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+  if [[ -z "$TAG" ]]; then
+    die "no experimental release found yet — push to the 'dev-adminotaur' branch first, or install the Production channel."
+  fi
+  say "Debian: downloading the experimental build $TAG (last step)…"
+  if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/tags/$TAG" 2>/dev/null)"; then
+    die "could not fetch release $TAG — re-run the installer."
+  fi
+else
+  say "Debian: downloading the latest production release (last step)…"
+  if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/latest" 2>/dev/null)"; then
+    die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
+  fi
+  TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+  if [[ -z "$TAG" ]]; then
+    die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
+  fi
 fi
 ASSET_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^"]*decyphertek-'"$TARGET"'.tar.gz' | head -1)"
 if [[ -z "$ASSET_URL" ]]; then
@@ -432,49 +579,93 @@ WRAP
   ok "sourced alias installed: '$BIN_NAME' in ~/.bashrc — run it from Termux"
 }
 
-# ---------------------------------------------------------------- docker (desktop)
-setup_docker() {
+# ------------------------------------------------ container runtime (PC)
+# @store pulls, runs and manages MCP tool servers with plain `docker`
+# commands. On a PC that CLI comes best-effort from daemonless podman +
+# the podman-docker shim — the same runtime the agent runs on inside
+# its proot home — so no docker daemon needs enabling, starting or
+# babysitting on a working desktop either. The package set is chosen
+# by the detected flavor: Debian/Ubuntu (apt) also gets uidmap so
+# rootless podman can map subordinate UIDs right away; Fedora (dnf),
+# Arch (pacman), openSUSE (zypper), Alpine (apk) ship those defaults.
+setup_container_runtime() {
   if [[ "$TERMUX" == 1 ]]; then
-    return  # handled inside the proot Debian above
+    return  # the proot-Debian bootstrap installed podman already
   fi
-  if need docker; then
-    ok "Docker already installed: $(docker --version 2>/dev/null || echo present)"
+  if [[ "$IS_MAC" == 1 ]]; then
+    if need docker; then
+      ok "Docker is present: $(docker --version 2>/dev/null || echo running)"
+    else
+      warn "Docker is not installed — install Docker Desktop for @store"
+      warn "containers; the agent itself runs fine without it."
+    fi
     return
   fi
-  say "Best-effort Docker setup (optional — @store's MCP servers need it)…"
-  SU=""
-  need sudo && SU="sudo"
-  if need apt-get; then
-    ${SU} apt-get install -y -qq docker.io docker-compose >/dev/null 2>&1 \
-      && ok "Docker installed (docker.io docker-compose)" \
-      || warn "Docker install failed — install manually for @store containers."
-  elif need dnf; then
-    ${SU} dnf install -y docker >/dev/null 2>&1 \
-      && ok "Docker installed" \
-      || warn "Docker install failed — install manually for @store containers."
+  if need docker; then
+    ok "container runtime already present: $(docker --version 2>/dev/null || echo docker)"
+    return
+  fi
+  if [[ -z "$PKG_MGR" ]]; then
+    warn "no supported package manager detected — install podman + podman-docker"
+    warn "manually if you want @store MCP containers."
+    return
+  fi
+  say "Installing the container runtime via $PKG_MGR (podman, podman-docker, podman-compose)…"
+  local pkgs=(podman podman-docker podman-compose uidmap)
+  if [[ "$PKG_MGR" != "apt-get" ]]; then
+    pkgs=(podman podman-docker podman-compose)
+  fi
+  if ! pkg_install "${pkgs[@]}"; then
+    warn "could not install the whole set at once — trying package by package…"
+    local pk
+    for pk in "${pkgs[@]}"; do
+      pkg_install "$pk" || warn "could not install $pk — continuing"
+    done
+  fi
+  if need docker; then
+    ok "docker-compatible CLI ready — @store keeps working unchanged"
+    if need timeout && ! timeout 30 docker info >/dev/null 2>&1; then
+      warn "'docker info' did not answer yet — on a fresh rootless podman this"
+      warn "usually clears after one log-out/log-in; the agent itself is unaffected."
+    fi
   else
-    warn "No supported package manager — install Docker manually if you want it."
+    warn "docker-compatible CLI not present — @store needs podman + podman-docker."
   fi
 }
 
-# ------------------------------------------------------------ latest release
-# Desktop path: fetch + verify + stage the latest release binary. On
-# Termux this whole step happens INSIDE the Debian container instead
-# (see the bootstrap above) — nothing is downloaded into Termux.
+# ------------------------------------------------------------- release fetch
+# Desktop path: fetch + verify + stage the chosen channel's release —
+# production -> releases/latest, experimental -> the newest v*-dev.*
+# prerelease published from the testing branch. On Termux this whole
+# step happens INSIDE the Debian container instead (see the bootstrap
+# above) — nothing is downloaded into Termux.
 fetch_release() {
-  say "Finding the latest release…"
   GH_API="https://api.github.com/repos/$REPO/releases"
   AUTH=()
   if [[ -n "${GH_TOKEN:-}" || -n "${GITHUB_TOKEN:-}" ]]; then
     AUTH=(-H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}")
   fi
-  if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/latest" 2>/dev/null)"; then
-    die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
-  fi
-
-  TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
-  if [[ -z "$TAG" ]]; then
-    die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
+  if [[ "$CHANNEL" == experimental ]]; then
+    say "Experimental channel — finding the newest 'dev-adminotaur' prerelease…"
+    if ! RELIST="$(curl -sSLf "${AUTH[@]}" "$GH_API?per_page=50" 2>/dev/null)"; then
+      die "could not list releases — check the network and re-run the installer."
+    fi
+    TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev\.[0-9a-f]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+    if [[ -z "$TAG" ]]; then
+      die "no experimental release found — push to the 'dev-adminotaur' branch first, or install the Production channel."
+    fi
+    if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/tags/$TAG" 2>/dev/null)"; then
+      die "could not fetch release $TAG — re-run the installer."
+    fi
+  else
+    say "Production channel — finding the latest stable release…"
+    if ! RELEASE_JSON="$(curl -sSLf "${AUTH[@]}" "$GH_API/latest" 2>/dev/null)"; then
+      die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
+    fi
+    TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+    if [[ -z "$TAG" ]]; then
+      die "No releases yet. Trigger the Prod-Build workflow (Actions → Prod-Build → Run workflow) or build with: cargo install --path ."
+    fi
   fi
 
   ASSET_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^"]*/decyphertek-'"$TARGET"'.tar.gz' | head -1)"
@@ -491,9 +682,9 @@ fetch_release() {
     curl -sSLf -o "$TMPD/checksums.txt" "$CHECKSUM_URL" || warn "checksum list unavailable — skipping verify"
   fi
 
-  if [[ -f "$TMPD/checksums.txt" ]] && need sha256sum; then
+  if [[ -f "$TMPD/checksums.txt" ]] && [[ -n "$SUMTOOL" ]]; then
     EXPECT="$(grep 'decyphertek-'"$TARGET"'.tar.gz' "$TMPD/checksums.txt" | awk '{print $1}')"
-    GOT="$(sha256sum "$TMPD/decyphertek.tar.gz" | awk '{print $1}')"
+    GOT="$($SUMTOOL "$TMPD/decyphertek.tar.gz" | awk '{print $1}')"
     if [[ -n "$EXPECT" && "$EXPECT" != "$GOT" ]]; then
       die "SHA-256 mismatch (want $EXPECT, got $GOT) — corrupted download; re-run."
     fi
@@ -511,29 +702,44 @@ fetch_release() {
 }
 
 # ---------------------------------------------------------------- install
+# PC: ONE folder. The binary lives in ~/.decyphertek.ai/bin — the same
+# ~/.decyphertek.ai that will hold vault.dct and staging/, so program +
+# encrypted data is a single directory: an uninstall without --purge
+# removes bin/ and keeps the vault; --purge removes everything.
 if [[ "$TERMUX" == 1 ]]; then
   termux_proot_home
   LAUNCHER="$PREFIX/bin/$BIN_NAME"
-  ok "DeCypherTek.ai installed inside proot Debian — '$BIN_NAME' launches it from Termux"
+  ok "DeCypherTek.ai ($CHANNEL channel) installed inside proot Debian — '$BIN_NAME' launches it from Termux"
 else
   fetch_release
-  DEST_BIN="$HOME/.local/bin"
+  DEST_BIN="$DATA_DIR/bin"
   mkdir -p "$DEST_BIN"
   mv "$BIN_STAGED" "$DEST_BIN/$BIN_NAME"
   chmod +x "$DEST_BIN/$BIN_NAME"
   LAUNCHER="$DEST_BIN/$BIN_NAME"
-  setup_docker
-  echo
+
+  # Older desktop installers of this agent put the binary in
+  # ~/.local/bin — retire that exact file so exactly one exists.
+  if [[ -e "$HOME/.local/bin/$BIN_NAME" ]]; then
+    rm -f "$HOME/.local/bin/$BIN_NAME"
+    ok "retired the older ~/.local/bin/$BIN_NAME layout"
+  fi
+
+  setup_container_runtime
+
+  # PATH: a marked, removable block — written only when missing.
   if [[ ":$PATH:" != *":$DEST_BIN:"* ]]; then
-    warn "$DEST_BIN is not on PATH — adding it to your shell profile."
     for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-      if [[ -f "$rc" ]] && ! grep -q '\.local/bin' "$rc"; then
-        printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+      if [[ "$rc" == "$HOME/.zshrc" && ! -f "$rc" ]]; then continue; fi
+      touch "$rc"
+      if ! grep -qF '.decyphertek.ai/bin' "$rc"; then
+        printf '\n# DeCypherTek.ai — agent bin on PATH (uninstall.sh removes this block)\nexport PATH="$HOME/.decyphertek.ai/bin:$PATH"\n' >> "$rc"
       fi
     done
     export PATH="$DEST_BIN:$PATH"
+    ok "PATH wired: $DEST_BIN"
   fi
-  ok "DeCypherTek.ai on PATH: $INSTALLED_VERSION"
+  ok "DeCypherTek.ai $TAG ($CHANNEL channel, $INSTALLED_VERSION) — everything under $DATA_DIR"
 fi
 echo
 

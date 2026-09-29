@@ -18,8 +18,10 @@
 #       alias in ~/.bashrc / ~/.zshrc.
 #
 #   Desktop:
-#     - the ~/.local/bin/decyphertek.ai binary. The PATH export line,
-#       Docker and every other package it installed stay.
+#     - the ~/.decyphertek.ai/bin folder (the binary) and its marked
+#       PATH block in ~/.bashrc / ~/.zshrc; plus a legacy binary an
+#       older installer left in ~/.local/bin. podman and every other
+#       package it installed stay — they are shared software.
 #
 # The encrypted vault in ~/.decyphertek.ai holds your agent — memory,
 # config, keys — and is KEPT by default. Pass --purge to wipe it too.
@@ -171,15 +173,34 @@ if [[ "$TERMUX" == 1 ]]; then
   warn "already-open shells keep the old alias in memory — open a new Termux"
   warn "shell for it to be gone everywhere."
 else
-  # Desktop: the installed binary. PATH exports, package installs and
-  # anything else the installer touched stay — they are shared software.
-  f="$HOME/.local/bin/$BIN_NAME"
-  if [[ -e "$f" ]]; then
-    rm -f "$f"
-    ok "removed $f"
+  # Desktop: the agent's one folder minus the vault — the binary in
+  # ~/.decyphertek.ai/bin, its marked PATH block, and a legacy binary an
+  # older installer left in ~/.local/bin. Package installs (podman, ...)
+  # stay — they are shared software.
+  if [[ -e "$HOME/.local/bin/$BIN_NAME" ]]; then
+    rm -f "$HOME/.local/bin/$BIN_NAME"
+    ok "removed legacy binary: $HOME/.local/bin/$BIN_NAME"
   else
-    ok "no desktop binary found (already gone)"
+    ok "no legacy ~/.local/bin/$BIN_NAME (already gone)"
   fi
+  if [[ -e "$DATA_DIR/bin" ]]; then
+    rm -rf "$DATA_DIR/bin"
+    ok "removed $DATA_DIR/bin"
+  else
+    ok "no agent bin folder found at $DATA_DIR/bin (already gone)"
+  fi
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    [[ -f "$rc" ]] || continue
+    if grep -qF '.decyphertek.ai/bin' "$rc"; then
+      grep -v -F \
+        -e '# DeCypherTek.ai — agent bin on PATH (uninstall.sh removes this block)' \
+        -e 'export PATH="$HOME/.decyphertek.ai/bin:$PATH"' \
+        "$rc" > "$rc.tmp" || true
+      cat "$rc.tmp" > "$rc"
+      rm -f "$rc.tmp"
+      ok "PATH block stripped from $rc"
+    fi
+  done
 fi
 
 # 5) the encrypted vault: your agent's memory — kept unless --purge.
