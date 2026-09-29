@@ -6,7 +6,10 @@
 #   Termux:
 #     - the Debian proot instance the installer custom-named
 #       'decyphertek' — removable by name, so a Debian (or any other)
-#       proot you installed yourself is never touched.
+#       proot you installed yourself is never touched. Removed via
+#       'proot-distro remove' when it cooperates — that command takes
+#       no options in any proot-distro release — or, when it refuses,
+#       by wiping exactly the fingerprinted container directory.
 #     - legacy instances earlier installers left under the plain
 #       'debian' / 'archlinux' aliases — removed only when they carry
 #       the DeCypherTek fingerprint (our launcher/binary inside the
@@ -71,6 +74,49 @@ ours_by_fingerprint() {  # $1 = rootfs path
   [[ -f "$1/usr/local/bin/dct-launch" ]] || [[ -f "$1/usr/local/bin/$BIN_NAME" ]]
 }
 
+# The directory proot-distro itself deletes on removal: v5 keeps the
+# rootfs (and its manifest) under containers/<alias>, v4 used
+# installed-rootfs/<alias> — a layout v5 does not manage at all.
+pd_container_dir_of() {  # $1 = alias -> prints container dir, else rc 1
+  local cand
+  for cand in \
+    "${PREFIX}/var/lib/proot-distro/containers/$1" \
+    "${PREFIX}/var/lib/proot-distro/installed-rootfs/$1"; do
+    if [[ -d "$cand" ]]; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Remove an instance ours_by_fingerprint just declared ours. proot-distro
+# first — but its 'remove' takes no options in ANY release: the v3/v4
+# bash script aborts on them ("got unknown option"), the v5+ rewrite
+# exits with "unrecognized option". The '--force' this uninstaller used
+# to append therefore always failed, and the container stayed installed.
+# When proot-distro still refuses — a live agent session holds the
+# container lock (v5+), a lost alias plugin makes v4 reject the name, or
+# the binary is simply missing — delete the container directory the
+# same way proot-distro itself does (best-effort chmod, then rm -rf of
+# the entry alone where it is a symlink), plus the v4-era generated
+# alias plugin. The fingerprint above authorizes every path touched.
+pd_remove_instance() {  # $1 = alias -> rc 0 only when it is gone
+  local dir
+  if need proot-distro; then
+    proot-distro remove "$1" >/dev/null 2>&1 || true
+  fi
+  if dir="$(pd_container_dir_of "$1")"; then
+    if [[ ! -L "$dir" ]]; then
+      chmod -R u+rwx "$dir" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$dir"
+    rm -f "${PREFIX}/etc/proot-distro/$1.override.sh"
+  fi
+  pd_container_dir_of "$1" >/dev/null && return 1
+  return 0
+}
+
 say "DeCypherTek.ai uninstaller"
 
 if [[ "$TERMUX" == 1 ]]; then
@@ -78,9 +124,9 @@ if [[ "$TERMUX" == 1 ]]; then
   #    alias: removable by name, never a user's separate Debian.
   if root="$(pd_rootfs_of "$PROOT_DISTRO")"; then
     if ours_by_fingerprint "$root"; then
-      proot-distro remove "$PROOT_DISTRO" --force >/dev/null 2>&1 \
+      pd_remove_instance "$PROOT_DISTRO" \
         && ok "removed the '$PROOT_DISTRO' Debian proot instance" \
-        || warn "proot-distro could not remove it — run: proot-distro remove $PROOT_DISTRO --force"
+        || warn "could not remove the '$PROOT_DISTRO' instance — run: proot-distro remove $PROOT_DISTRO"
     else
       warn "a proot instance named '$PROOT_DISTRO' exists but carries no DeCypherTek"
       warn "fingerprint — it was not installed by DeCypherTek; leaving it alone."
@@ -95,9 +141,9 @@ if [[ "$TERMUX" == 1 ]]; then
   for alias in debian archlinux; do
     if root="$(pd_rootfs_of "$alias")"; then
       if ours_by_fingerprint "$root"; then
-        proot-distro remove "$alias" --force >/dev/null 2>&1 \
+        pd_remove_instance "$alias" \
           && ok "removed the older '$alias' instance left by a previous installer" \
-          || warn "proot-distro could not remove '$alias' — run: proot-distro remove $alias --force"
+          || warn "could not remove the '$alias' instance — run: proot-distro remove $alias"
       else
         ok "kept '$alias' — it is not DeCypherTek's"
       fi

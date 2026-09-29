@@ -167,6 +167,48 @@ ours_by_fingerprint() {  # $1 = rootfs path
   [[ -f "$1/usr/local/bin/dct-launch" ]] || [[ -f "$1/usr/local/bin/$BIN_NAME" ]]
 }
 
+# The directory proot-distro itself deletes on removal: v5 keeps the
+# rootfs (and its manifest) under containers/<alias>, v4 used
+# installed-rootfs/<alias> — a layout v5 does not manage at all.
+pd_container_dir_of() {  # $1 = alias -> prints container dir, else rc 1
+  local cand
+  for cand in \
+    "${PREFIX}/var/lib/proot-distro/containers/$1" \
+    "${PREFIX}/var/lib/proot-distro/installed-rootfs/$1"; do
+    if [[ -d "$cand" ]]; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Remove an instance ours_by_fingerprint just declared ours. proot-distro
+# first — but its 'remove' takes no options in ANY release: the v3/v4
+# bash script aborts on them ("got unknown option"), the v5+ rewrite
+# exits with "unrecognized option". A '--force' therefore always fails
+# while leaving the container installed. When proot-distro still
+# refuses — a live agent session holds the container lock (v5+), a lost
+# alias plugin makes v4 reject the name, or the binary is simply
+# missing — delete the container directory the same way proot-distro
+# itself does (best-effort chmod, then rm -rf of the entry alone where
+# it is a symlink), plus the v4-era generated alias plugin.
+pd_remove_instance() {  # $1 = alias -> rc 0 only when it is gone
+  local dir
+  if need proot-distro; then
+    proot-distro remove "$1" >/dev/null 2>&1 || true
+  fi
+  if dir="$(pd_container_dir_of "$1")"; then
+    if [[ ! -L "$dir" ]]; then
+      chmod -R u+rwx "$dir" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$dir"
+    rm -f "${PREFIX}/etc/proot-distro/$1.override.sh"
+  fi
+  pd_container_dir_of "$1" >/dev/null && return 1
+  return 0
+}
+
 pd_install_debian() {
   say "Installing the Debian rootfs image (as the '$PROOT_DISTRO' instance)…"
   # Custom alias so OUR container is separate from any user-installed
@@ -187,9 +229,9 @@ adopt_legacy_debian() {
     if ours_by_fingerprint "$legacy"; then
       say "Found an older DeCypherTek Debian instance under the plain 'debian' alias —"
       say "replacing it with the dedicated '$PROOT_DISTRO' instance…"
-      proot-distro remove debian --force >/dev/null 2>&1 \
+      pd_remove_instance debian \
         && ok "previous 'debian' instance removed" \
-        || warn "could not remove it — run 'proot-distro remove debian --force' once."
+        || warn "could not remove it — run 'proot-distro remove debian' once."
     else
       warn "a Debian proot named 'debian' exists and is NOT ours — leaving it"
       warn "untouched; the agent gets its own '$PROOT_DISTRO' instance."
