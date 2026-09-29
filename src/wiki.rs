@@ -13,7 +13,10 @@ pub const BASELINE_FILES: &[(&str, &str)] = &[
         "operative-handbook.md",
         include_str!("../assets/wiki/operative-handbook.md"),
     ),
-    ("adminotaur.md", include_str!("../assets/wiki/adminotaur.md")),
+    (
+        "adminotaur.md",
+        include_str!("../assets/wiki/adminotaur.md"),
+    ),
     (
         "termux-playbook.md",
         include_str!("../assets/wiki/termux-playbook.md"),

@@ -1,6 +1,7 @@
-//! The `@`-shell: a classic terminal — the prompt looks like
+//! The slash shell: a classic terminal — the prompt looks like
 //! `decyphertek.ai:~$` — where everything you type runs exactly as typed
-//! (with a persistent `cd`), and only @-commands wake the agent. A run
+//! (with a persistent `cd`), and only agent commands (typed as `/command`;
+//! the older `@command` prefix still works) wake the agent. A run
 //! prints just `Processing Request............`, then one final TUI
 //! report, and hands the prompt back.
 
@@ -13,31 +14,33 @@ use std::io::BufRead;
 use std::path::PathBuf;
 
 pub const HELP: &str = "\
-@-shell — commands run exactly as typed; @-commands wake the agent.
+slash shell — commands run exactly as typed; /-commands wake the agent.
 
-  @chat <task>        conversation backed by full memory
-  @code <task>        hands-on: read, change, verify, report diffs
-  @research <topic>   web research + memory, ends in a written report
-  @research <n>.yml <topic>
+  /chat <task>        conversation backed by full memory
+  /code <task>        hands-on: read, change, verify, report diffs
+  /research <topic>   web research + memory, ends in a written report
+  /research <n>.yml <topic>
                       same, but searching only the sites listed in the
-                      research profile <n>.yml (create/edit via @setup)
-  @upload             pick files from a folder browser (Downloads etc.) —
+                      research profile <n>.yml (create/edit via /setup)
+  /upload             pick files from a folder browser (Downloads etc.) —
                       they land in the wiki's info/ folder and RAG memory
-  @store              MCP tool-server store: search Docker A-Z (TUI), pull,
+  /store              MCP tool-server store: search Docker A-Z (TUI), pull,
                       register — servers launch hardened, internal-only
-  @ingest <folder>    chunk a folder's docs into RAG memory (+read grant)
-  @grants read <p>    grant a folder to read
-  @grants write <p>   grant a folder to write
-  @leash <mode>       leashed | unleashed — take the leash on/off
-  @status             current agent, brain, leash, grants, memory
-  @wiki list          list wiki memory pages
-  @wiki read <name>   print a wiki page
-  @setup              re-run the walkthrough (brain, grants, tools)
-  @password           change the vault password
-  @help               this help
+  /ingest <folder>    chunk a folder's docs into RAG memory (+read grant)
+  /grants read <p>    grant a folder to read
+  /grants write <p>   grant a folder to write
+  /leash <mode>       leashed | unleashed — take the leash on/off
+  /status             current agent, brain, leash, grants, memory
+  /wiki list          list wiki memory pages
+  /wiki read <name>   print a wiki page
+  /setup              re-run the walkthrough (brain, grants, tools)
+  /password           change the vault password
+  /help               this help
   exit                seal the vault and quit
   cd [path]           change directory (~, .., - ; the prompt follows)
-  anything else       runs in your shell, untouched";
+  anything else       runs in your shell, untouched
+
+  every command also works with the older @-prefix (@chat = /chat)";
 
 pub fn run(
     cfg: &mut Config,
@@ -68,7 +71,13 @@ pub fn run(
         if let Err(e) = result {
             tui::error(&e.to_string());
         }
-        if cmd == "exit" || cmd == "quit" || cmd == "@exit" || cmd == "@quit" {
+        if cmd == "exit"
+            || cmd == "quit"
+            || cmd == "@exit"
+            || cmd == "@quit"
+            || cmd == "/exit"
+            || cmd == "/quit"
+        {
             return Ok(());
         }
     }
@@ -87,6 +96,17 @@ fn handle(
     let (head, rest) = match cmd.split_once(' ') {
         Some((h, r)) => (h, r.trim()),
         None => (cmd, ""),
+    };
+
+    // Slash commands: `/name` dispatches identically to `@name` — one
+    // command set, two sigils. Anything without a sigil still falls through
+    // to the plain shell passthrough, untouched.
+    let head_owned;
+    let head = if let Some(name) = head.strip_prefix('/') {
+        head_owned = format!("@{name}");
+        &head_owned
+    } else {
+        head
     };
 
     match head {
@@ -113,7 +133,7 @@ fn handle(
             run_agent(cfg, paths, vectors, mode, &task, &[])
         }
         "@research" => {
-            // Optional leading research profile: "@research <name>.yml <topic>"
+            // Optional leading research profile: "/research <name>.yml <topic>"
             // locks web searching to that profile's sites. A bare first
             // token that matches a saved profile works too.
             let mut sites: Vec<String> = Vec::new();
@@ -121,9 +141,9 @@ fn handle(
             let first = rest.split_whitespace().next().unwrap_or("").to_lowercase();
             let profiles = crate::research::list(paths).unwrap_or_default();
             let explicit = first.ends_with(".yml") || first.ends_with(".yaml");
-            let known = profiles.iter().any(|p| {
-                p.trim_end_matches(".yml").trim_end_matches(".yaml") == first
-            });
+            let known = profiles
+                .iter()
+                .any(|p| p.trim_end_matches(".yml").trim_end_matches(".yaml") == first);
             if !first.is_empty() && (explicit || known) {
                 match crate::research::load(paths, &first) {
                     Ok(profile) => {
@@ -142,7 +162,7 @@ fn handle(
                         tui::error(&e.to_string());
                         let have = crate::research::list(paths).unwrap_or_default();
                         if have.is_empty() {
-                            tui::info("RESEARCH", "no profiles yet — @setup creates one, or just run @research <topic> for a general web search.");
+                            tui::info("RESEARCH", "no profiles yet — /setup creates one, or just run /research <topic> for a general web search.");
                         } else {
                             tui::info("RESEARCH", &format!("available: {}", have.join(", ")));
                         }
@@ -169,7 +189,7 @@ fn handle(
             if rest.is_empty() {
                 tui::info(
                     "USAGE",
-                    "@ingest <folder> — chunk a folder's docs into RAG memory.",
+                    "/ingest <folder> — chunk a folder's docs into RAG memory.",
                 );
                 return Ok(());
             }
@@ -213,7 +233,7 @@ fn handle(
                     Ok(())
                 }
                 _ => {
-                    tui::info("USAGE", "@grants read <folder>  or  @grants write <folder>");
+                    tui::info("USAGE", "/grants read <folder>  or  /grants write <folder>");
                     Ok(())
                 }
             }
@@ -234,7 +254,7 @@ fn handle(
                 tui::info(
                     "LEASH",
                     &format!(
-                        "current: {} — use @leash leashed | @leash unleashed",
+                        "current: {} — use /leash leashed | /leash unleashed",
                         cfg.leash
                     ),
                 );
@@ -245,7 +265,7 @@ fn handle(
             let n = vectors.count()?;
             let pages = crate::wiki::list(paths)?.len();
             let mcp = if cfg.mcp_servers.is_empty() {
-                "(none — @store adds them)".to_string()
+                "(none — /store adds them)".to_string()
             } else {
                 cfg.mcp_servers
                     .iter()
@@ -270,7 +290,7 @@ fn handle(
                     if cfg.read_paths.is_empty() { "(none)".into() } else { cfg.read_paths.join(", ") },
                     if cfg.write_paths.is_empty() { "(none)".into() } else { cfg.write_paths.join(", ") },
                     crate::agent::enabled_tools(cfg),
-                    if cfg.tool_mcp { "enabled" } else { "gate off (@setup)" },
+                    if cfg.tool_mcp { "enabled" } else { "gate off (/setup)" },
                     if cfg.mcp_servers.is_empty() { String::new() } else { format!("\n               {mcp}") },
                     n,
                     pages,
@@ -300,7 +320,7 @@ fn handle(
                     Ok(())
                 }
                 _ => {
-                    tui::info("USAGE", "@wiki list  |  @wiki read <name>");
+                    tui::info("USAGE", "/wiki list  |  /wiki read <name>");
                     Ok(())
                 }
             }
@@ -377,8 +397,8 @@ fn expand_tilde(p: &str) -> PathBuf {
             if rest.is_empty() {
                 return home;
             }
-            if rest.starts_with('/') {
-                return home.join(&rest[1..]);
+            if let Some(rel) = rest.strip_prefix('/') {
+                return home.join(rel);
             }
         }
     }
@@ -457,7 +477,7 @@ fn run_agent(
 
     match crate::agent::run(cfg, paths, vectors, mode, task, research_sites) {
         Ok(result) => {
-            tui::report(&format!("@{mode} — report"), &result.report);
+            tui::report(&format!("/{mode} — report"), &result.report);
             for w in &result.warnings {
                 tui::warn("RUN", w);
             }
@@ -533,11 +553,12 @@ fn upload_docs(paths: &Paths, vectors: &mut Vectors) -> Result<()> {
         }
         let base = items.len();
         items.extend(dirs.iter().map(|d| format!("{d}/")));
-        items.extend(
-            files
-                .iter()
-                .map(|f| f.file_name().unwrap_or_default().to_string_lossy().to_string()),
-        );
+        items.extend(files.iter().map(|f| {
+            f.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        }));
 
         let sel = Select::with_theme(&theme)
             .with_prompt(format!("Folder: {}", dir.display()))
@@ -547,9 +568,11 @@ fn upload_docs(paths: &Paths, vectors: &mut Vectors) -> Result<()> {
         if sel == 0 {
             break;
         }
-        if up.is_some() && sel == 1 {
-            dir = up.unwrap();
-            continue;
+        if sel == 1 {
+            if let Some(parent) = up {
+                dir = parent;
+                continue;
+            }
         }
         let idx = sel - base;
         if idx < dirs.len() {

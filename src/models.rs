@@ -117,7 +117,7 @@ impl Client {
             Provider::OpenRouter => {
                 if or_key.trim().is_empty() {
                     return Err(anyhow!(
-                        "no OpenRouter API key — run `decyphertek.ai setup` (or @setup) and add one"
+                        "no OpenRouter API key — run `decyphertek.ai setup` (or /setup) and add one"
                     ));
                 }
                 Ok(Client {

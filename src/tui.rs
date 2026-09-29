@@ -84,13 +84,9 @@ pub fn banner(version: &str) {
     println!("{}", paint(CYAN, &format!("╚{}╝", "═".repeat(w - 2))));
 }
 
-/// Prompt for the @-shell: a classic terminal look — `decyphertek.ai:~$ `.
+/// Prompt for the slash shell: a classic terminal look — `decyphertek.ai:~$ `.
 pub fn draw_prompt(cwd: &str) {
-    print!(
-        "{}:{}$ ",
-        paint(GREEN, "decyphertek.ai"),
-        paint(CYAN, cwd),
-    );
+    print!("{}:{}$ ", paint(GREEN, "decyphertek.ai"), paint(CYAN, cwd),);
     use std::io::Write;
     let _ = std::io::stdout().flush();
 }

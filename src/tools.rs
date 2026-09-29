@@ -123,7 +123,7 @@ fn may_read(cfg: &Config, paths: &Paths, path: &str) -> Result<PathBuf> {
     let granted = cfg.is_unleashed() || inside_own || under_any(&p, &cfg.read_paths);
     if !granted {
         return Err(anyhow!(
-            "DENIED: read access to '{path}' is not granted (leash: {}). Grant it with: @grants read {path}",
+            "DENIED: read access to '{path}' is not granted (leash: {}). Grant it with: /grants read {path}",
             cfg.leash
         ));
     }
@@ -136,7 +136,7 @@ fn may_write(cfg: &Config, paths: &Paths, path: &str) -> Result<PathBuf> {
     let granted = cfg.is_unleashed() || inside_own || under_any(&p, &cfg.write_paths);
     if !granted {
         return Err(anyhow!(
-            "DENIED: write access to '{path}' is not granted (leash: {}). Grant it with: @grants write {path}",
+            "DENIED: write access to '{path}' is not granted (leash: {}). Grant it with: /grants write {path}",
             cfg.leash
         ));
     }
@@ -211,7 +211,7 @@ pub fn run(ctx: &mut ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) ->
         "run_command" => {
             let already_granted = ctx.cfg.tool_run_command;
             if !already_granted {
-                "DENIED: command execution is off. Enable it in setup: @setup".to_string()
+                "DENIED: command execution is off. Enable it in setup: /setup".to_string()
             } else if ctx.cfg.is_unleashed() {
                 run_command(&get("command"))
             } else {
@@ -408,7 +408,9 @@ fn anchors_with_class(body: &str, cls: &str) -> Vec<(String, String)> {
     while let Some(rel) = body[pos..].find(&needle) {
         let at = pos + rel;
         let tag_start = body[..at].rfind('<').unwrap_or(0);
-        let Some(tag_end_rel) = body[at..].find('>') else { break };
+        let Some(tag_end_rel) = body[at..].find('>') else {
+            break;
+        };
         let tag_end = at + tag_end_rel;
         let tag = &body[tag_start..=tag_end];
         let href = tag
@@ -445,10 +447,7 @@ fn resolve_href(href: &str) -> String {
 /// Read a response body into a String, capped at `cap` bytes.
 fn read_body_capped(resp: ureq::Response, cap: u64) -> Option<String> {
     let mut s = String::new();
-    resp.into_reader()
-        .take(cap)
-        .read_to_string(&mut s)
-        .ok()?;
+    resp.into_reader().take(cap).read_to_string(&mut s).ok()?;
     Some(s)
 }
 
@@ -461,7 +460,10 @@ fn ddg_html_search(agent: &ureq::Agent, query: &str) -> Vec<WebHit> {
     let resp = agent
         .get(&url)
         .timeout(Duration::from_secs(20))
-        .set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) DeCypherTek/0.1")
+        .set(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) DeCypherTek/0.1",
+        )
         .call();
     let body = match resp {
         Ok(r) => read_body_capped(r, 2_000_000).unwrap_or_default(),
@@ -504,21 +506,21 @@ fn wikipedia_search(agent: &ureq::Agent, query: &str, limit: usize) -> Vec<WebHi
         return Vec::new();
     };
     hits.iter()
-        .filter_map(|h| {
+        .map(|h| {
             let title = h.get("title").and_then(|x| x.as_str()).unwrap_or("");
             let snippet = h
                 .get("snippet")
                 .and_then(|x| x.as_str())
                 .map(|s| s.replace(['&', '<', '>'], ""))
                 .unwrap_or_default();
-            Some(WebHit {
+            WebHit {
                 url: format!(
                     "https://en.wikipedia.org/wiki/{}",
                     url_encode(&title.replace(' ', "_"))
                 ),
                 title: format!("wikipedia: {title}"),
                 snippet,
-            })
+            }
         })
         .take(limit)
         .collect()
@@ -580,7 +582,11 @@ fn xml_tag_text(xml: &str, tag: &str) -> Option<String> {
     let content_start = rest.find('>')? + 1;
     let close = format!("</{tag}>");
     let end_rel = rest[content_start..].find(&close)?;
-    Some(rest[content_start..content_start + end_rel].trim().to_string())
+    Some(
+        rest[content_start..content_start + end_rel]
+            .trim()
+            .to_string(),
+    )
 }
 
 /// arXiv via its keyless export API (arxiv.org).
@@ -731,7 +737,10 @@ pub fn web_fetch(ctx: &ToolCtx, url: &str) -> String {
         .http
         .get(url)
         .timeout(Duration::from_secs(20))
-        .set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) DeCypherTek/0.1")
+        .set(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) DeCypherTek/0.1",
+        )
         .call();
     let mut body = match resp {
         Ok(r) => read_body_capped(r, 1_000_000).unwrap_or_default(),
@@ -743,7 +752,9 @@ pub fn web_fetch(ctx: &ToolCtx, url: &str) -> String {
             let open = format!("<{tag}");
             let close = format!("</{tag}>");
             let Some(a) = body.find(&open) else { break };
-            let Some(b) = body[a..].find(&close) else { break };
+            let Some(b) = body[a..].find(&close) else {
+                break;
+            };
             body.replace_range(a..a + b + close.len(), " ");
         }
     }

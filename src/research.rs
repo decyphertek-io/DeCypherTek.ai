@@ -93,7 +93,7 @@ pub fn load(p: &Paths, raw_name: &str) -> Result<ResearchProfile> {
     let file = normalize_name(raw_name)?;
     let path = research_dir(p).join(&file);
     let body = std::fs::read_to_string(&path).map_err(|_| {
-        anyhow!("research profile '{raw_name}' not found — @wiki list shows what exists, @setup creates new ones")
+        anyhow!("research profile '{raw_name}' not found — /wiki list shows what exists, /setup creates new ones")
     })?;
     let profile = parse(&body).with_context(|| format!("parsing research profile {file}"))?;
     let name = if profile.0.is_empty() {
@@ -116,14 +116,17 @@ pub fn save(p: &Paths, file: &str, name: &str, description: &str, sites: &[Strin
         return Err(anyhow!("a research profile needs at least one site"));
     }
     std::fs::create_dir_all(research_dir(p))?;
-    std::fs::write(research_dir(p).join(&file), serialize(name, description, sites))?;
+    std::fs::write(
+        research_dir(p).join(&file),
+        serialize(name, description, sites),
+    )?;
     Ok(())
 }
 
 /// Serialize in the exact subset `parse` reads.
 pub fn serialize(name: &str, description: &str, sites: &[String]) -> String {
     let mut out =
-        String::from("# DeCypherTek research profile — used by @research <name>.yml <topic>\n");
+        String::from("# DeCypherTek research profile — used by /research <name>.yml <topic>\n");
     out.push_str(&format!("name: {}\n", name.trim()));
     if !description.trim().is_empty() {
         out.push_str(&format!("description: {}\n", description.trim()));
@@ -148,11 +151,11 @@ pub fn parse(body: &str) -> Result<(String, String, Vec<String>)> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        if trimmed.starts_with("- ") {
+        if let Some(rest) = trimmed.strip_prefix("- ") {
             if !in_sites {
                 return Err(anyhow!("line {}: list item outside 'sites:'", i + 1));
             }
-            let site = trimmed[2..].trim().trim_matches('"').trim_matches('\'');
+            let site = rest.trim().trim_matches('"').trim_matches('\'');
             if !site.is_empty() {
                 sites.push(site.to_string());
             }
@@ -162,7 +165,11 @@ pub fn parse(body: &str) -> Result<(String, String, Vec<String>)> {
             return Err(anyhow!("line {}: expected 'key: value'", i + 1));
         };
         let key = key.trim();
-        let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+        let value = value
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .to_string();
         match key {
             "name" => name = value,
             "description" => description = value,
@@ -184,7 +191,9 @@ pub fn parse(body: &str) -> Result<(String, String, Vec<String>)> {
         }
     }
     if sites.is_empty() {
-        return Err(anyhow!("no sites listed — add 'sites:' with '- url' bullets"));
+        return Err(anyhow!(
+            "no sites listed — add 'sites:' with '- url' bullets"
+        ));
     }
     Ok((name, description, sites))
 }

@@ -67,7 +67,7 @@ pub struct StoreEntry {
 pub fn curated_catalog() -> Vec<StoreEntry> {
     let rows: &[(&str, &str, &str)] = &[
         ("brave-search", "mcp/brave-search", "Web search via the Brave Search API (needs BRAVE_API_KEY env)."),
-        ("everything", "mcp/everything", "MCP reference server exposing tools, resources and prompts — a safe first install to try @store."),
+        ("everything", "mcp/everything", "MCP reference server exposing tools, resources and prompts — a safe first install to try /store."),
         ("fetch", "mcp/fetch", "Fetch web pages and convert them to clean markdown the model can read."),
         ("filesystem", "mcp/filesystem", "Sandboxed file access for explicitly allowed directories."),
         ("git", "mcp/git", "Git operations: clone, status, diff, log, branches, create repos."),
@@ -266,7 +266,7 @@ fn upsert(cfg: &mut Config, entry: &StoreEntry) {
 /// install with one keypress, review/flip/down what runs in the vault.
 pub fn browse(cfg: &mut Config, paths: &Paths, initial_query: &str) -> Result<()> {
     if !std::io::stdin().is_terminal() {
-        return Err(anyhow!("@store is interactive — run it in the terminal"));
+        return Err(anyhow!("/store is interactive — run it in the terminal"));
     }
     let theme = ColorfulTheme::default();
 
@@ -375,7 +375,7 @@ pub fn browse(cfg: &mut Config, paths: &Paths, initial_query: &str) -> Result<()
     tui::info(
         "STORE",
         &format!(
-            "Registered MCP servers: {} enabled / {} total. They run hardened (network=none, cap-drop=ALL), stdio-only, on the agent's terms. View with @status, add or remove any time with @store.",
+            "Registered MCP servers: {} enabled / {} total. They run hardened (network=none, cap-drop=ALL), stdio-only, on the agent's terms. View with /status, add or remove any time with /store.",
             count,
             cfg.mcp_servers.len()
         ),
@@ -444,11 +444,11 @@ fn act_on(
             {
                 upsert(cfg, entry);
                 cfg.save(paths)
-                    .context("save config after @store install")?;
+                    .context("save config after /store install")?;
                 tui::info(
                     "STORE",
                     &format!(
-                        "{} registered and enabled. Its tools (mcp_{}_<tool>) are live on the next @-run.",
+                        "{} registered and enabled. Its tools (mcp_{}_<tool>) are live on the next agent run.",
                         entry.image,
                         sanitize_server_name(&entry.name)
                     ),
@@ -479,7 +479,7 @@ fn act_on(
             cfg.mcp_servers
                 .retain(|s| s.image != entry.image && !s.image.ends_with(entry.image.as_str()));
             cfg.save(paths)
-                .context("save config after @store uninstall")?;
+                .context("save config after /store uninstall")?;
             tui::info(
                 "STORE",
                 "Server unregistered (image kept on disk for a fast re-add).",
@@ -521,7 +521,7 @@ fn manage_installed(cfg: &mut Config, paths: &Paths) -> Result<()> {
         }
         let server = cfg.mcp_servers[idx].clone();
         let actions = [
-            "Enable (run on @-runs, hardened)",
+            "Enable (run on agent runs, hardened)",
             "Disable (keep registered, don't run)",
             "Uninstall (remove from vault)",
             "Back",
@@ -676,7 +676,7 @@ impl McpChild {
             let n = self.reader.read_line(&mut line).context("read MCP stdio")?;
             if n == 0 {
                 return Err(anyhow!(
-                    "MCP server '{}' closed its stdio — daemon down, image deleted, or missing API-key env (see @store)",
+                    "MCP server '{}' closed its stdio — daemon down, image deleted, or missing API-key env (see /store)",
                     self.server
                 ));
             }
@@ -758,12 +758,12 @@ pub fn spawn_pool(cfg: &Config) -> (Vec<McpChild>, Vec<String>) {
         return (pool, warnings);
     }
     if !cfg.tool_mcp {
-        warnings.push("MCPS: tool_mcp is off (@setup) — registered servers skipped.".into());
+        warnings.push("MCPS: tool_mcp is off (/setup) — registered servers skipped.".into());
         return (pool, warnings);
     }
     if !docker_available() {
         warnings.push(format!(
-            "MCPS: Docker not found — {} registered server(s) skipped this run (@store has details).",
+            "MCPS: Docker not found — {} registered server(s) skipped this run (/store has details).",
             active.len()
         ));
         return (pool, warnings);
