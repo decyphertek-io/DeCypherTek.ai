@@ -96,13 +96,14 @@ pub fn load(p: &Paths, raw_name: &str) -> Result<ResearchProfile> {
         anyhow!("research profile '{raw_name}' not found — @wiki list shows what exists, @setup creates new ones")
     })?;
     let profile = parse(&body).with_context(|| format!("parsing research profile {file}"))?;
+    let name = if profile.0.is_empty() {
+        file.trim_end_matches(".yml").to_string()
+    } else {
+        profile.0
+    };
     Ok(ResearchProfile {
         file,
-        name: if profile.0.is_empty() {
-            file.trim_end_matches(".yml").to_string()
-        } else {
-            profile.0
-        },
+        name,
         description: profile.1,
         sites: profile.2,
     })
