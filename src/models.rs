@@ -8,12 +8,12 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// The curated OpenRouter picks offered at setup: strong current
+/// models across providers — the default is the first entry.
 pub const OPENROUTER_DEFAULT_MODELS: &[&str] = &[
-    "openai/gpt-4o-mini",
-    "anthropic/claude-3.5-haiku",
-    "google/gemini-2.0-flash-001",
-    "deepseek/deepseek-chat",
-    "meta-llama/llama-3.3-70b-instruct:free",
+    "z-ai/glm-latest",
+    "moonshotai/kimi-k3",
+    "deepseek/deepseek-v4.1-flash",
 ];
 
 /// Slim models that actually run on a phone via Ollama in Termux.

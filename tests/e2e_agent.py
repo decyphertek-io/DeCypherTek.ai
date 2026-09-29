@@ -51,8 +51,6 @@ DOWN = "\x1b[B"
 print("=== 1. wizard: fake ollama backend ===")
 m, p = spawn([])
 drain(2.5)
-send("\r")                     # persona: default
-drain(1.5)
 send(DOWN + "\r")              # backend: ollama (index 1)
 drain(1.5)
 send("\r")                     # base url default 127.0.0.1:11434 (fake tags)

@@ -46,18 +46,17 @@ def text():
 
 print("=== 1. first launch: fresh HOME -> wizard ===")
 m, p = spawn([])
-drain(2.5)                     # banner + welcome + persona select
+drain(2.5)                     # banner + welcome + backend select
 out = text()
-check("Choose a persona" in out, "persona prompt")
-send("\r")                     # default persona
-drain(1.5)                     # backend select
+check("ADMINOTAUR" in out, "welcome names the adminotaur agent")
+check("Choose the brain" in out, "backend prompt")
 send("\r")                     # OpenRouter
 drain(1.5)                     # api key password prompt
 send("sk-or-v1-dummy-key-e2e\r")
 drain(6.0)                     # model select + live probe
 out = text()
 check("Default model" in out, "model prompt shown")
-send("\r")                     # gpt-4o-mini
+send("\r")                     # z-ai/glm-latest (default model)
 drain(1.5)                     # memory folders question
 send("\r")                     # empty -> no grant question, no leash skip
 drain(1.5)
@@ -111,7 +110,7 @@ check("UNSEALED" in out, "vault unsealed banner")
 send("@status\r")
 drain(1.5)
 out = text()
-check("persona" in out and "openrouter" in out, "@status shows persona + backend")
+check("adminotaur" in out and "openrouter" in out, "@status shows agent + backend")
 check("leashed" in out, "@status shows leash")
 
 send("@wiki list\r")

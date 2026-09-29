@@ -28,7 +28,7 @@ DeCypherTek.ai — a customizable, self-learning AI agent in one Rust binary.
 
 USAGE:
   decyphertek.ai         launch the @-shell (asks vault password, decrypts memory)
-  decyphertek.ai setup   run the first-time walkthrough wizard (persona, brain, grants)
+  decyphertek.ai setup   run the first-time walkthrough wizard (brain, grants)
   decyphertek.ai --help  this help
   decyphertek.ai --version  print version
 
