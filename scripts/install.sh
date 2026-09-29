@@ -96,7 +96,9 @@ echo
 # =========================================== TERMUX: proot Debian + Docker
 # Docker cannot run in Termux itself (no root, no cgroups). The agent's
 # home becomes a proot Debian Linux where Docker CAN be installed, and
-# the daemon is started with bridge/iptables off (proot-safe mode).
+# the daemon is started with bridge/iptables off and the vfs storage
+# driver (proot cannot mount overlayfs, so the default driver dies at
+# boot on Android) — the proot-safe recipe.
 # @store's MCP servers then run in hardened containers — network=none
 # anyway.
 #
@@ -258,8 +260,11 @@ if command -v docker >/dev/null 2>&1; then
   if timeout 5 docker info >/dev/null 2>&1; then
     rm -f "$DATA/.dockerd-broken" 2>/dev/null || true
   elif [[ ! -f "$DATA/.dockerd-broken" ]]; then
-    (dockerd --iptables=false --bridge=none >"$DATA/dockerd.log" 2>&1 &)
-    for _ in $(seq 1 15); do
+    # proot cannot mount overlayfs, so dockerd's default storage driver
+    # dies at boot on Android. vfs works under proot — vfs + iptables/
+    # bridge off is the proot-safe recipe.
+    (dockerd --iptables=false --bridge=none --storage-driver=vfs >"$DATA/dockerd.log" 2>&1 &)
+    for _ in $(seq 1 20); do
       timeout 5 docker info >/dev/null 2>&1 && break
       sleep 1
     done
@@ -292,17 +297,19 @@ LAUNCH
 
   # Termux side: the launcher script on $PREFIX/bin (works everywhere),
   # plus the SOURCED ALIAS the user actually types — `decyphertek.ai`
-  # goes from a Termux prompt straight into the proot Debian.
+  # goes from a Termux prompt straight into the proot Debian. proot-distro
+  # already binds shared storage (/sdcard) itself — re-binding it only
+  # prints an overlap warning, so it is left to proot-distro.
   mkdir -p "$PREFIX/bin"
   cat > "$PREFIX/bin/$BIN_NAME" <<WRAP
 #!/data/data/com.termux/files/usr/bin/bash
 # DeCypherTek.ai — from Termux straight into the proot Debian home.
 # The vault data stays in real Termux home and is bind-mounted in
 # (survives container rebuilds); the agent + Docker live inside Debian.
+# /sdcard and the rest of shared storage are bound by proot-distro itself.
 DATA="\$HOME/.decyphertek.ai"
 mkdir -p "\$DATA"
 ARGS=(login $PROOT_DISTRO --bind "\$DATA:/root/.decyphertek.ai")
-[[ -d /sdcard ]] && ARGS+=(--bind /sdcard:/sdcard)
 proot-distro "\${ARGS[@]}" -- /usr/local/bin/dct-launch "\$@"
 WRAP
   chmod +x "$PREFIX/bin/$BIN_NAME"

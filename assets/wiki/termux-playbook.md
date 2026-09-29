@@ -20,13 +20,14 @@ Everything happens inside the Debian container, in order:
   installed at `/usr/local/bin/decyphertek.ai`;
 - a sourced alias lands in `~/.bashrc` — typing `decyphertek.ai` from a
   Termux prompt enters the proot Debian and starts the agent there, with
-  dockerd started automatically using `--iptables=false --bridge=none`
-  (proot-safe mode);
+  dockerd started automatically using `--iptables=false --bridge=none
+  --storage-driver=vfs` (proot-safe mode — proot cannot mount
+  overlayfs, so the default storage driver would die at boot);
 - the installer ends by running `decyphertek.ai` itself, so a fresh
   install drops straight into the first-run walkthrough.
 - The vault stays in real Termux home (`~/.decyphertek.ai`) and is
-  bind-mounted in, so it survives container reinstalls; `/sdcard` is
-  mounted at `/sdcard` when present.
+  bind-mounted in, so it survives container reinstalls; `/sdcard` and
+  the rest of shared storage are bound by proot-distro itself.
 
 ## Why it works on a phone
 
