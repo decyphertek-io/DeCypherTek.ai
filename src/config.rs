@@ -26,7 +26,6 @@ pub struct McpServer {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub version: u32,
-    pub persona: String,
     pub provider: String, // "openrouter" | "ollama"
     pub openrouter_api_key: String,
     pub openrouter_model: String,
@@ -62,10 +61,9 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             version: 1,
-            persona: "default".into(),
             provider: "openrouter".into(),
             openrouter_api_key: String::new(),
-            openrouter_model: "openai/gpt-4o-mini".into(),
+            openrouter_model: "z-ai/glm-latest".into(),
             ollama_url: "http://127.0.0.1:11434".into(),
             ollama_model: "qwen2.5:0.5b-instruct".into(),
             leash: "leashed".into(),

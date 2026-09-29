@@ -1,7 +1,8 @@
 //! First-run TUI walkthrough — "Welcome to DeCypherTek.ai".
-//! Persona, backend (OpenRouter key/model, or Ollama with slim phone
-//! models on Termux), memory folders (RAG + read grants), the Leash and
-//! tool grants. main.rs handles the vault password + sealing around this.
+//! Backend (OpenRouter key/model, or Ollama with slim phone models on
+//! Termux), memory folders (RAG + read grants), the Leash and tool
+//! grants. main.rs handles the vault password + sealing around this.
+//! The personality is fixed: ADMINOTAUR, the sysadmin operator.
 
 use crate::config::Config;
 use crate::models::{Client, OLLAMA_SLIM_MODELS, OPENROUTER_DEFAULT_MODELS};
@@ -53,24 +54,16 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     tui::banner(env!("CARGO_PKG_VERSION"));
     tui::info(
         "WELCOME",
-        "This walkthrough makes the agent yours: persona (how it \
-         thinks), brain (OpenRouter or Ollama), memory (folders it reads \
-         and learns from), the Leash (what it may do) — and the vault \
-         password that encrypts all of it under ~/.decyphertek.ai/.",
+        "Your agent is ADMINOTAUR — the sysadmin AI that operates the whole \
+          system (it can even build subagents). This walkthrough wires up \
+          its brain (OpenRouter or Ollama), memory (folders it reads and \
+          learns from), the Leash (what it may do) — and the vault password \
+          that encrypts all of it under ~/.decyphertek.ai/.",
     );
 
     let mut cfg = existing.cloned().unwrap_or_default();
 
-    // 1. Persona.
-    let personas = crate::agent::persona_list();
-    let persona_idx = Select::with_theme(&theme)
-        .with_prompt("Choose a persona (how your agent thinks)")
-        .items(&personas)
-        .default(personas.iter().position(|p| p == &cfg.persona).unwrap_or(0))
-        .interact()?;
-    cfg.persona = personas[persona_idx].clone();
-
-    // 2. Backend.
+    // 1. Backend.
     let backends = vec![
         "OpenRouter — hosted models, one API key, nothing to install (recommended)",
         "Ollama — local models, no cloud; on Termux: slim phone models",
@@ -88,7 +81,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         choose_ollama(&mut cfg, &theme, is_termux)?;
     }
 
-    // 3. Memory folders = RAG ingest (+ optional read grant).
+    // 2. Memory folders = RAG ingest (+ optional read grant).
     tui::info(
         "MEMORY",
         "Which folders hold the docs/knowledge the agent should chunk into \
@@ -126,7 +119,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         }
     }
 
-    // 4. The Leash.
+    // 3. The Leash.
     let leash_opts = vec![
         "Leashed — default. Reads only granted folders, writes only its own data dir. Tool grants below still apply.",
         "Unleashed — folder scopes off: it may read/write anywhere your user can. Tool grants still apply.",
@@ -142,7 +135,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         "unleashed".into()
     };
 
-    // 5. Tool grants.
+    // 4. Tool grants.
     let tool_items = vec![
         "web_search — research the web (keyless DuckDuckGo + Wikipedia)",
         "read_files — read files in granted folders",
@@ -168,7 +161,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     cfg.tool_run_command = chosen.contains(&3);
     cfg.tool_mcp = chosen.contains(&4);
 
-    // 6. Persist: config, baseline wiki, RAG ingest.
+    // 5. Persist: config, baseline wiki, RAG ingest.
     paths.ensure_staging()?;
     crate::wiki::write_baseline(paths)?;
     cfg.save(paths)?;
@@ -233,7 +226,7 @@ fn choose_openrouter(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
         .interact()?;
     cfg.openrouter_model = if display[idx].eq(&custom.to_string()) {
         let m: String = Input::with_theme(theme)
-            .with_prompt("Model id (e.g. openai/gpt-4o)")
+            .with_prompt("Model id (e.g. z-ai/glm-latest)")
             .interact_text()?;
         m.trim().to_string()
     } else {

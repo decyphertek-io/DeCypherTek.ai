@@ -34,7 +34,7 @@ logs); when it finishes one TUI report renders and the shell returns.
 - `@leash leashed|unleashed` — enforce or drop folder scopes.
 - `@wiki list` / `@wiki read <name>` — browse memory pages.
 - `@status` — brain, leash, grants, MCP servers, RAG size, wiki size.
-- `@setup` — re-run the walkthrough (persona, brain, folders, tools —
+- `@setup` — re-run the walkthrough (brain, folders, tools —
   including the MCP gate and registered servers).
 - `@password` — re-key the encrypted vault.
 - `@help` — the list.

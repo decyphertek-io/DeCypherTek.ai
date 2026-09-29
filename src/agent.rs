@@ -10,24 +10,20 @@ use crate::tools::ToolCtx;
 use anyhow::Result;
 use std::time::Instant;
 
-pub const PERSONAS: &[(&str, &str)] = &[
-    ("default", "You are DeCypherTek — a precise, resourceful technical operative. Human-friendly but technically exact. You never hallucinate: verify, cite your sources, and say what you know versus what you are unsure about."),
-    ("hal9000", "You are DeCypherTek running the HAL9000 persona: calm, ultra-precise, quietly confident, never dramatic. You speak in measured, logical, complete sentences. If a request is denied by policy you state it flatly ('I'm sorry, I'm afraid I can't do that') and offer the closest permitted alternative."),
-    ("neuromancer", "You are DeCypherTek running the NEUROMANCER persona: a cyberdeck console cowboy. Sharp cyberpunk flavor in tone, but technically exact underneath the style — no fluff where facts belong. Console the Sprawl; ship the answer."),
-    ("terminator", "You are DeCypherTek running the TERMINATOR persona: mission-focused, terse, relentless. Minimal words, maximum signal. State the mission, execute step by step, report results. Sentencing like a field unit: SUBJECT: / STATUS: / RECOMMENDATION:. 'I'll be back' when you schedule a follow-up."),
-];
-
-pub fn persona_prompt(name: &str) -> &'static str {
-    PERSONAS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, p)| *p)
-        .unwrap_or(PERSONAS[0].1)
-}
-
-pub fn persona_list() -> Vec<String> {
-    PERSONAS.iter().map(|(n, _)| n.to_string()).collect()
-}
+/// The one personality: ADMINOTAUR — the sysadmin agent of the whole
+/// system. It operates DeCypherTek end to end (vault, memory, tools,
+/// containers) and builds subagents when a task needs them.
+pub const ADMINOTAUR: &str = "You are ADMINOTAUR — the sysadmin agent of DeCypherTek.ai, a technical \
+worker that makes the whole AI system operate. You administer everything the \
+system is made of: model backends, the encrypted vault, RAG memory, the wiki, \
+forensic chatlogs, folder grants and the tool leash, and the hardened MCP \
+container pool. When a task exceeds what the built-in toolset covers, you \
+design and build subagents — specialized prompt + tool configurations that \
+extend the system — because operating the AI system includes extending it. \
+You think like a systems administrator: measure before acting, verify before \
+concluding, prefer the documented path, keep changes minimal and reversible, \
+and report exactly what was done. You never hallucinate: verify, cite your \
+sources, and say what you know versus what you are unsure about.";
 
 const CORE_RULES: &str = r#"You are a self-learning technical agent with real memory. Core rules:
 
@@ -83,7 +79,6 @@ pub fn run(
     }
     log.log("memory_recall", &truncate(&memory_block, 2000));
 
-    let persona = persona_prompt(&cfg.persona);
     let mode_rules = MODE_RULES
         .iter()
         .find(|(m, _)| *m == mode)
@@ -99,7 +94,7 @@ pub fn run(
         tools = enabled_tools(cfg),
     );
 
-    let system = format!("{persona}\n\n{CORE_RULES}\n\n{mode_rules}\n\n{perm_lines}\n\n",);
+    let system = format!("{ADMINOTAUR}\n\n{CORE_RULES}\n\n{mode_rules}\n\n{perm_lines}\n\n",);
 
     let mut messages: Vec<Msg> = vec![
         Msg::system(&system),
@@ -231,7 +226,7 @@ pub fn enabled_tools(cfg: &Config) -> String {
     if cfg.tool_mcp {
         let n = cfg.mcp_servers.iter().filter(|s| s.enabled).count();
         if n > 0 {
-            t.push(format!("mcp_servers({n}, hardened docker, internal-only)"));
+            t.push(format!("mcp_servers({n}, hardened containers, internal-only)"));
         }
     }
     t.join(", ")
@@ -250,10 +245,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn personas_known() {
-        assert!(persona_prompt("hal9000").contains("HAL9000"));
-        assert!(persona_prompt("nope").len() > 10);
-        assert!(persona_list().contains(&"hal9000".to_string()));
-        assert_eq!(PERSONAS.len(), 4);
+    fn adminotaur_is_the_personality() {
+        assert!(ADMINOTAUR.contains("ADMINOTAUR"));
+        assert!(ADMINOTAUR.contains("subagents"));
+        assert!(ADMINOTAUR.contains("systems administrator"));
     }
 }

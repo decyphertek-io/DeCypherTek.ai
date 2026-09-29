@@ -18,7 +18,7 @@ curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/ins
 **Linux / macOS** — the exact same command. The installer:
 
 1. **On Termux/Android**: containers can't run in Termux proper (no root), and *nothing of the agent is downloaded into Termux itself*. The installer bootstraps a **proot Debian Linux** home first — as a **custom-named `decyphertek` instance** (`proot-distro install debian --override-alias decyphertek`), so a Debian proot you installed yourself under the plain `debian` alias is never touched. Inside that Linux container, in order: `apt update`, then `apt install -y podman podman-docker podman-compose curl gnupg ca-certificates`, and **last** the **latest release binary** from GitHub Releases (verifying its SHA-256) is downloaded and installed as `/usr/local/bin/decyphertek.ai`. Containers run on **daemonless podman** (docker's daemon can't boot reliably under proot — its default overlay storage driver needs a mount proot will never provide); the installer configures the **vfs storage driver** (`/etc/containers/storage.conf`) and `podman-docker` installs a docker-compatible CLI, so `@store` keeps issuing plain `docker` commands unchanged. A **sourced alias lands in `~/.bashrc`**, so typing `decyphertek.ai` from a Termux prompt launches you straight into the proot Debian terminal. Everywhere else: detects your OS and CPU, downloads the latest release binary, and puts `decyphertek.ai` on your `PATH`, plus a **best-effort Docker setup** for `@store`'s MCP containers.
-2. **Runs the agent itself at the end of the install** — no separate setup step and no "run this next" hand-off. It detects whether it has been configured (does the vault exist?); if not, the **TUI walkthrough wizard** runs right there (*Welcome to DeCypherTek.ai* → persona → brain → memory folders → the Leash → vault password), and you land in the `@`-shell afterwards. If no release is published yet, it tells you exactly which workflow to run.
+2. **Runs the agent itself at the end of the install** — no separate setup step and no "run this next" hand-off. It detects whether it has been configured (does the vault exist?); if not, the **TUI walkthrough wizard** runs right there (*Welcome to DeCypherTek.ai* → brain → memory folders → the Leash → vault password), and you land in the `@`-shell afterwards with **ADMINOTAUR** — the sysadmin agent that operates the whole system. If no release is published yet, it tells you exactly which workflow to run.
 3. Re-run the same command any time to **update** — it always pulls `releases/latest`.
 
 ```bash
@@ -69,11 +69,11 @@ The terminal stays a normal terminal. Everything you type passes straight throug
 
 - **One Rust binary** — the agent, memory engine, tool suite, TUI walkthrough, crypto vault, and baseline docs all compile into a single static executable. No interpreter, no runtime, no framework.
 - **The `@`-shell** — passthrough shell + `@chat` / `@code` / `@research` agent modes with per-mode system framing.
-- **Pluggable personas** — `default`, plus **hal9000**, **neuromancer**, and **terminator** personalities chosen in the walkthrough; persona changes how it thinks and talks, never what it's permitted to do.
-- **Model layer: OpenRouter or Ollama** — deliberately only two backends, both speaking OpenAI-style HTTP, so one thin client covers the entire model layer. OpenRouter is the default (one key, every hosted model — perfect for a phone: it only makes HTTPS calls). Ollama runs your local models.
+- **ADMINOTAUR, the sysadmin agent** — the one personality: a technical worker that makes the whole AI system operate. It administers everything the system is made of — model backends, the vault, RAG memory, the wiki, grants, the Leash, the hardened MCP container pool — and builds subagents when a task needs them. Systems-administrator discipline throughout: measure before acting, verify before concluding, report exactly what was done.
+- **Model layer: OpenRouter or Ollama** — deliberately only two backends, both speaking OpenAI-style HTTP, so one thin client covers the entire model layer. OpenRouter is the default (one key, every hosted model — perfect for a phone: it only makes HTTPS calls), with curated picks offered at setup — **GLM Latest** (`z-ai/glm-latest`), **Kimi 3** (`moonshotai/kimi-k3`), and **DeepSeek 4.1 Flash** (`deepseek/deepseek-v4.1-flash`). Ollama runs your local models.
 - **Encrypted vault** — everything lives at `~/.decyphertek.ai/vault.dct`: AES-256-GCM over a gzip'd tar of the whole data directory, key derived with Argon2id from your password (salted, fresh nonce per seal). Launch asks for the password, decrypts to a private staging dir, and seals atomically on exit — AES-GCM's authentication means a wrong password simply fails. Crash mid-session? The plaintext staging survives, and the next launch re-verifies and re-seals it.
 - **RAG vector store** — one SQLite file, chunked knowledge, deterministic 256-dim feature-hashing embeddings + cosine search; zero external services, zero model downloads, fully offline (a phone-sized brain has to run on the phone).
-- **Wiki Memory** — markdown knowledge base with a baseline shipped *inside the binary* (operative handbook, Termux playbook, vault internals, commands, personas, RAG design), plus everything the agent writes back.
+- **Wiki Memory** — markdown knowledge base with a baseline shipped *inside the binary* (operative handbook, Termux playbook, vault internals, commands, adminotaur, RAG design), plus everything the agent writes back.
 - **MCP tool servers via `@store`** — a fuzzy-search TUI over *every MCP server found in Docker*, A-Z: an in-binary seed catalog (fetch, git, github, slack, time, …), a live Docker Hub query, and images already pulled on the machine. Pick one, pull, register — its tools merge into the agent's tool list as `mcp_<server>_<tool>`. Servers launch under a **security template that keeps them internal-only**: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, memory/pid caps, no published ports — the only channel a server gets is the stdio pipe the agent holds, so it can answer the agent and nothing else. Enable/disable/uninstall from the same TUI; the registry seals into the vault.
 - **Proot Debian Linux home on Termux** — containers can't run in Termux proper, so the installer bootstraps a `proot-distro` Debian rootfs **under a dedicated `decyphertek` instance name** (your own Debian proot is never touched, and uninstall removes exactly this instance) and does everything inside it, in order: `apt update`, `apt install -y podman podman-docker podman-compose curl gnupg ca-certificates`, and the DeCypherTek.ai binary downloaded *last* into `/usr/local/bin/decyphertek.ai` — nothing is staged in Termux itself. The container runtime inside is **podman, daemonless**: dockerd cannot boot reliably under proot (its overlay storage driver needs an overlayfs mount proot will never provide), while podman just needs the **vfs storage driver** (written to `/etc/containers/storage.conf`); `podman-docker` provides the docker-compatible CLI, so `@store` runs unchanged. Typing `decyphertek.ai` from Termux runs a **sourced alias (installed into `~/.bashrc`)** that launches you into the proot Debian terminal (a regular passthrough terminal — everything typed runs as typed, only `@` commands wake the agent). The vault stays bind-mounted from real Termux home so container reinstalls never touch your agent. A first-run probe asks the runtime once and reports whether `@store`'s launches are fully operational.
 - **Zero-step setup** — the installer finishes by running `decyphertek.ai` itself; the launcher detects whether the agent has been configured, on a fresh install the walkthrough runs immediately and drops you straight into the `@`-shell afterwards. `decyphertek.ai setup` (or `@setup` inside) re-runs it whenever you want to change the configuration.
@@ -101,7 +101,7 @@ Start the daemon in a second Termux session (`ollama serve`), and the agent reac
 ~/.decyphertek.ai/
 ├── vault.dct        ← everything, encrypted (AES-256-GCM + Argon2id)
 └── staging/         ← exists only while the agent runs (0700, wiped on seal)
-    ├── config.json          (persona, backend, API key, leash, grants)
+    ├── config.json          (backend, API key, leash, grants)
     ├── memory/
     │   ├── vectors.db       (RAG SQLite vector store)
     │   └── wiki/*.md        (Wiki Memory)
@@ -145,8 +145,8 @@ Static musl binaries run on any Linux regardless of the host's libc — the same
 flowchart TB
     subgraph Core["Agent Core - single Rust executable"]
         Orchestrator["LLM Orchestrator<br/>(plain loop, no framework)"]
-        Personas["Personas<br/>default · hal9000 · neuromancer · terminator"]
-        Orchestrator --- Personas
+        Agent["ADMINOTAUR<br/>sysadmin agent - operates the whole system, builds subagents"]
+        Orchestrator --- Agent
     end
 
     subgraph Vault["~/.decyphertek.ai/ - encrypted at rest"]
@@ -182,7 +182,7 @@ flowchart TB
         AtCmds["@chat @code @research"]
         Store["@store — MCP store<br/>pull Docker servers A-Z"]
         Tui["TUI reports"]
-        Wizard["setup wizard<br/>persona → brain → folders → leash → password"]
+        Wizard["setup wizard<br/>Adminotaur: brain → folders → leash → password"]
     end
 
     You([You]) -->|@ command| AtCmds
@@ -208,7 +208,7 @@ flowchart TB
 ### How a Run Works
 
 1. **Recall** — the task text searches the RAG store; top chunks become context.
-2. **Frame** — persona + mode rules + leash summary + recalled memory become the system prompt.
+2. **Frame** — the Adminotaur sysadmin prompt + mode rules + leash summary + recalled memory become the system prompt.
 3. **Loop** (max 12 iterations) — the model replies with tool calls; the orchestrator executes each through the leash, appending results; when the model produces a final answer, the loop ends. Registered @store MCP servers spawn as hardened containers at run start (network=none, stdio-only) and die with the run.
 4. **Learn** — the report and full case file are chunked into memory (`report` / `chatlog` kinds); the agent may have stored distillations via `remember` during the run.
 5. **Report** — one TUI panel + a stats line; the shell returns.
@@ -251,7 +251,7 @@ Phase 1 shipped in this build:
 - [x] Model layer — OpenRouter by default, optional Ollama, one client
 - [x] The leash — folder grants, tool gates, leashed/unleashed
 - [x] Encrypted vault — password on launch, sealed on exit
-- [x] TUI walkthrough wizard + personas (hal9000, neuromancer, terminator)
+- [x] TUI walkthrough wizard + the ADMINOTAUR sysadmin agent
 - [x] Cross-compiled release pipeline (Termux aarch64 first-class) + manual release workflow
 - [x] One-command installer pulling `releases/latest` (doubles as updater)
 
@@ -260,7 +260,7 @@ Next phases:
 - [x] MCP tool servers — `@store` TUI: search Docker (A-Z, hub live search + seed catalog), pull, register; hardened containers (`--network=none`, `--cap-drop=ALL`) that talk only to the agent over stdio; registry sealed in the vault, gated by the leash's mcp_servers switch
 - [ ] Neural embeddings via Ollama `nomic-embed-text` (swap the hashing embedder, same schema)
 - [ ] MCP sync servers — GitHub MCP for Wiki Memory-as-git-repo, rclone MCP for Proton Drive backup of the whole data dir
-- [ ] Custom agents via user-written `AGENT.md` on top of the built-in personas
+- [ ] Custom subagents via user-written `AGENT.md` on top of the Adminotaur core
 - [ ] Self-replication: binary from Releases + memory from sync = same agent on any device
 
 ## License

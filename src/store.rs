@@ -938,7 +938,8 @@ mod tests {
         let back = Config::load(&paths).unwrap();
         assert_eq!(back.mcp_servers, cfg.mcp_servers);
 
-        // old vaults (no mcp fields at all) must keep loading
+        // old vaults (no mcp fields at all, plus the since-retired
+        // persona key) must keep loading — unknown fields are ignored
         let old = serde_json::json!({
             "version": 1,
             "persona": "default",

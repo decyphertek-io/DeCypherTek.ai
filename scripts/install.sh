@@ -42,7 +42,7 @@
 #
 # No separate setup step either way: the installer ends by launching
 # decyphertek.ai itself, the launcher detects a fresh install, runs the
-# walkthrough (persona, OpenRouter/Ollama, the Leash, @store servers are
+# walkthrough (OpenRouter/Ollama, the Leash, @store servers are
 # optional adds), and drops you in the @-shell after.
 # Re-run any time to update to the latest release.
 # Removal, when you want it: scripts/uninstall.sh (vault kept unless
@@ -503,7 +503,7 @@ echo
 if [[ -f "$DATA_DIR/vault.dct" ]]; then
   ok "existing agent found at $DATA_DIR — update complete."
 else
-  ok "no existing agent — the walkthrough (persona, brain, leash, vault"
+  ok "no existing agent — the walkthrough (brain, leash, vault"
   ok "password) starts automatically on first launch. @setup re-runs it."
 fi
 

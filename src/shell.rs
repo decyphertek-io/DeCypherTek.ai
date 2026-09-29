@@ -24,7 +24,7 @@ pub const HELP: &str = "\
   @status             current agent, brain, leash, grants, memory
   @wiki list          list wiki memory pages
   @wiki read <name>   print a wiki page
-  @setup              re-run the walkthrough (persona, brain, grants, tools)
+  @setup              re-run the walkthrough (brain, grants, tools)
   @password           change the vault password
   @help               this help
   exit                seal the vault and quit
@@ -47,8 +47,7 @@ pub fn run(
 
     loop {
         let status = format!(
-            "{} | {} | {}",
-            cfg.persona,
+            "adminotaur | {} | {}",
             cfg.backend_summary(),
             cfg.leash
         );
@@ -211,9 +210,8 @@ fn handle(
             tui::info(
                 "STATUS",
                 &format!(
-                    "version        {}\npersona         {}\nbrain           {}\nleash           {}\nread grants     {}\nwrite grants    {}\ntools           {}\nMCP servers    {}{}\nRAG chunks      {}\nwiki pages      {}\nvault           {}",
+                    "version        {}\nagent           adminotaur (sysadmin)\nbrain           {}\nleash           {}\nread grants     {}\nwrite grants    {}\ntools           {}\nMCP servers    {}{}\nRAG chunks      {}\nwiki pages      {}\nvault           {}",
                     env!("CARGO_PKG_VERSION"),
-                    cfg.persona,
                     cfg.backend_summary(),
                     cfg.leash,
                     if cfg.read_paths.is_empty() { "(none)".into() } else { cfg.read_paths.join(", ") },
