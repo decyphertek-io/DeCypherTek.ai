@@ -56,6 +56,7 @@ pub fn run(
     vectors: &crate::vector::Vectors,
     mode: &str,
     task: &str,
+    research_sites: &[String],
 ) -> Result<RunResult> {
     let started = Instant::now();
     let mut log = ChatLog::new(paths)?;
@@ -94,7 +95,17 @@ pub fn run(
         tools = enabled_tools(cfg),
     );
 
-    let system = format!("{ADMINOTAUR}\n\n{CORE_RULES}\n\n{mode_rules}\n\n{perm_lines}\n\n",);
+    let system = if research_sites.is_empty() {
+        format!("{ADMINOTAUR}\n\n{CORE_RULES}\n\n{mode_rules}\n\n{perm_lines}\n\n",)
+    } else {
+        format!(
+            "{ADMINOTAUR}\n\n{CORE_RULES}\n\n{mode_rules}\n\n{perm_lines}\n\n\
+             WEB RESEARCH RESTRICTION: this run uses a research profile — web_search \
+             and web_fetch are locked to these sites only: {}. Search them \
+             thoroughly instead of the general web.\n\n",
+            research_sites.join(", ")
+        )
+    };
 
     let mut messages: Vec<Msg> = vec![
         Msg::system(&system),
@@ -132,6 +143,7 @@ pub fn run(
         vectors,
         http,
         mcp: mcp_pool,
+        research_sites: research_sites.to_vec(),
     };
     let mut tool_specs = crate::tools::specs(cfg);
     tool_specs.extend(crate::store::pool_specs(&ctx.mcp));

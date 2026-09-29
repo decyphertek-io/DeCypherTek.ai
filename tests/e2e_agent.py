@@ -64,6 +64,8 @@ drain(1.5)
 send("\r")                     # leash: leashed
 drain(1.5)
 send("\r")                     # tools: defaults
+drain(1.5)
+send("\r")                     # research profile: default skip
 drain(2.5)
 out = text()
 check("Vault password" in out, "fresh vault password prompt")

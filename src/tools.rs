@@ -27,6 +27,9 @@ pub struct ToolCtx<'a> {
     /// this run by src/store.rs. Empty unless servers are registered
     /// (via @store), enabled, and Docker is available.
     pub mcp: Vec<crate::store::McpChild>,
+    /// When a research profile is active (@research <name>.yml), web
+    /// tools are locked to these sites (hosts or URLs). Empty = free.
+    pub research_sites: Vec<String>,
 }
 
 pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
@@ -59,8 +62,13 @@ pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
     if cfg.tool_web_search {
         out.push(tool_spec(
             "web_search",
-            "Search the web (DuckDuckGo + Wikipedia) for research.",
+            "Search the web (DuckDuckGo results + Wikipedia + Hacker News) for research. Returns titles, URLs and snippets; use web_fetch on the best URL to read the page.",
             json_obj(&[("query", "string")]),
+        ));
+        out.push(tool_spec(
+            "web_fetch",
+            "Fetch a web page and return its readable text (for reading a search result in full).",
+            json_obj(&[("url", "string")]),
         ));
     }
     if cfg.tool_run_command {
@@ -198,7 +206,8 @@ pub fn run(ctx: &mut ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) ->
                 .unwrap_or_else(|| "write failed".to_string()),
             Err(e) => e.to_string(),
         },
-        "web_search" => web_search(&ctx.http, &get("query")),
+        "web_search" => web_search(ctx, &get("query")),
+        "web_fetch" => web_fetch(ctx, &get("url")),
         "run_command" => {
             let already_granted = ctx.cfg.tool_run_command;
             if !already_granted {
@@ -320,71 +329,446 @@ pub fn run_command(cmd: &str) -> String {
     }
 }
 
-/// Keyless web research: DuckDuckGo Instant Answers + Wikipedia search.
-pub fn web_search(agent: &ureq::Agent, query: &str) -> String {
-    let mut results = String::new();
+/// One web search hit.
+struct WebHit {
+    url: String,
+    title: String,
+    snippet: String,
+}
 
-    // DuckDuckGo Instant Answer.
-    let url = format!(
-        "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
-        url_encode(query)
-    );
-    let try_ddg = agent
-        .get(&url)
-        .timeout(Duration::from_secs(15))
-        .set("User-Agent", "DeCypherTek/0.1")
-        .call();
-    if let Ok(resp) = try_ddg {
-        if let Ok(v) = serde_json::from_reader::<_, serde_json::Value>(resp.into_reader()) {
-            let heading = v.get("Heading").and_then(|x| x.as_str()).unwrap_or("");
-            let abstract_text = v.get("AbstractText").and_then(|x| x.as_str()).unwrap_or("");
-            let answer = v.get("Answer").and_then(|x| x.as_str()).unwrap_or("");
-            if !abstract_text.is_empty() {
-                results.push_str(&format!("[duckduckgo: {heading}] {abstract_text}\n\n"));
-            }
-            if !answer.is_empty() {
-                results.push_str(&format!("[duckduckgo answer] {answer}\n\n"));
-            }
-            if let Some(topics) = v.get("RelatedTopics").and_then(|t| t.as_array()) {
-                for t in topics.iter().take(3) {
-                    if let Some(txt) = t.get("Text").and_then(|x| x.as_str()) {
-                        results.push_str(&format!("[duckduckgo related] {txt}\n\n"));
-                    }
+/// Host of a URL ("https://a.b/x" -> "a.b"); bare domains pass through.
+fn host_of(entry: &str) -> String {
+    let e = entry.trim().to_lowercase();
+    let e = e
+        .strip_prefix("https://")
+        .or_else(|| e.strip_prefix("http://"))
+        .unwrap_or(&e);
+    e.split('/').next().unwrap_or("").to_string()
+}
+
+/// True when `url` belongs to `site` (host match, subdomains included).
+fn url_in_site(url: &str, site: &str) -> bool {
+    let host = host_of(url);
+    let site = host_of(site);
+    !host.is_empty() && !site.is_empty() && (host == site || host.ends_with(&format!(".{site}")))
+}
+
+/// Percent-decode (for DDG redirect links).
+fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+                if let Ok(v) = u8::from_str_radix(hex, 16) {
+                    out.push(v);
+                    i += 3;
+                } else {
+                    out.push(bytes[i]);
+                    i += 1;
                 }
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
             }
         }
     }
+    String::from_utf8_lossy(&out).to_string()
+}
 
-    // Wikipedia search.
+/// Decode the common HTML entities (built at runtime so the source
+/// stays free of literal entity text).
+fn clean_text(s: &str) -> String {
+    let e_amp = format!("{}amp;", '&');
+    let e_quot = format!("{}quot;", '&');
+    let e_lt = format!("{}lt;", '&');
+    let e_gt = format!("{}gt;", '&');
+    s.replace(&e_amp, "&")
+        .replace(&e_quot, "\"")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace(&e_lt, "<")
+        .replace(&e_gt, ">")
+        .trim()
+        .to_string()
+}
+
+/// Extract (href, inner_text) pairs for anchors carrying `class="cls"`.
+fn anchors_with_class(body: &str, cls: &str) -> Vec<(String, String)> {
+    let needle = format!("class=\"{cls}\"");
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some(rel) = body[pos..].find(&needle) {
+        let at = pos + rel;
+        let tag_start = body[..at].rfind('<').unwrap_or(0);
+        let Some(tag_end_rel) = body[at..].find('>') else { break };
+        let tag_end = at + tag_end_rel;
+        let tag = &body[tag_start..=tag_end];
+        let href = tag
+            .find("href=\"")
+            .map(|h| {
+                let rest = &tag[h + 6..];
+                rest[..rest.find('"').unwrap_or(rest.len())].to_string()
+            })
+            .unwrap_or_default();
+        let inner_end = body[tag_end + 1..]
+            .find("</a>")
+            .map(|e| tag_end + 1 + e)
+            .unwrap_or(body.len());
+        let inner = clean_text(&body[tag_end + 1..inner_end.min(body.len())]);
+        out.push((href, inner));
+        pos = inner_end.min(body.len());
+    }
+    out
+}
+
+/// Resolve a DDG href: unwrap the `uddg=` redirect, scheme-fix `//`.
+fn resolve_href(href: &str) -> String {
+    if let Some(u) = href.find("uddg=") {
+        let rest = &href[u + 5..];
+        let enc = rest.split('&').next().unwrap_or(rest);
+        return url_decode(enc);
+    }
+    if let Some(stripped) = href.strip_prefix("//") {
+        return format!("https://{stripped}");
+    }
+    href.to_string()
+}
+
+/// Read a response body into a String, capped at `cap` bytes.
+fn read_body_capped(resp: ureq::Response, cap: u64) -> Option<String> {
+    let mut s = String::new();
+    resp.into_reader()
+        .take(cap)
+        .read_to_string(&mut s)
+        .ok()?;
+    Some(s)
+}
+
+/// Real web results via DuckDuckGo's HTML endpoint (keyless). The old
+/// Instant Answers API returns nothing for most queries — this returns
+/// actual result links and snippets. Some datacenter IPs get blocked;
+/// callers layer keyless native APIs on top for exactly that case.
+fn ddg_html_search(agent: &ureq::Agent, query: &str) -> Vec<WebHit> {
+    let url = format!("https://html.duckduckgo.com/html/?q={}", url_encode(query));
+    let resp = agent
+        .get(&url)
+        .timeout(Duration::from_secs(20))
+        .set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) DeCypherTek/0.1")
+        .call();
+    let body = match resp {
+        Ok(r) => read_body_capped(r, 2_000_000).unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let titles = anchors_with_class(&body, "result__a");
+    let snippets = anchors_with_class(&body, "result__snippet");
+    titles
+        .into_iter()
+        .enumerate()
+        .map(|(i, (href, title))| WebHit {
+            url: resolve_href(&href),
+            title,
+            snippet: snippets.get(i).map(|(_, s)| s.clone()).unwrap_or_default(),
+        })
+        .filter(|h| h.url.starts_with("http"))
+        .collect()
+}
+
+/// Wikipedia search (keyless, reliable everywhere).
+fn wikipedia_search(agent: &ureq::Agent, query: &str, limit: usize) -> Vec<WebHit> {
     let wiki = format!(
-        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit=5",
-        url_encode(query)
+        "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={}&format=json&srlimit={}",
+        url_encode(query),
+        limit
     );
-    let try_wiki = agent
+    let resp = agent
         .get(&wiki)
         .timeout(Duration::from_secs(15))
         .set("User-Agent", "DeCypherTek/0.1")
         .call();
-    if let Ok(resp) = try_wiki {
-        if let Ok(v) = serde_json::from_reader::<_, serde_json::Value>(resp.into_reader()) {
-            if let Some(hits) = v.pointer("/query/search").and_then(|x| x.as_array()) {
-                for h in hits {
-                    let title = h.get("title").and_then(|x| x.as_str()).unwrap_or("");
-                    let let_snippet = h
-                        .get("snippet")
-                        .and_then(|x| x.as_str())
-                        .map(|s| s.replace(['&', '<', '>'], ""))
-                        .unwrap_or_default();
-                    results.push_str(&format!("[wikipedia: {title}] {let_snippet}\n\n"));
+    let body = match resp {
+        Ok(r) => read_body_capped(r, 500_000).unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return Vec::new();
+    };
+    let Some(hits) = v.pointer("/query/search").and_then(|x| x.as_array()) else {
+        return Vec::new();
+    };
+    hits.iter()
+        .filter_map(|h| {
+            let title = h.get("title").and_then(|x| x.as_str()).unwrap_or("");
+            let snippet = h
+                .get("snippet")
+                .and_then(|x| x.as_str())
+                .map(|s| s.replace(['&', '<', '>'], ""))
+                .unwrap_or_default();
+            Some(WebHit {
+                url: format!(
+                    "https://en.wikipedia.org/wiki/{}",
+                    url_encode(&title.replace(' ', "_"))
+                ),
+                title: format!("wikipedia: {title}"),
+                snippet,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
+/// Hacker News via the keyless Algolia API (news.ycombinator.com).
+fn hn_search(agent: &ureq::Agent, query: &str, limit: usize) -> Vec<WebHit> {
+    let url = format!(
+        "https://hn.algolia.com/api/v1/search?query={}&hitsPerPage={}",
+        url_encode(query),
+        limit
+    );
+    let resp = agent.get(&url).timeout(Duration::from_secs(15)).call();
+    let body = match resp {
+        Ok(r) => read_body_capped(r, 500_000).unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return Vec::new();
+    };
+    let Some(hits) = v.get("hits").and_then(|x| x.as_array()) else {
+        return Vec::new();
+    };
+    hits.iter()
+        .filter_map(|h| {
+            let title = h.get("title").and_then(|x| x.as_str())?;
+            let link = h
+                .get("url")
+                .and_then(|x| x.as_str())
+                .filter(|u| u.starts_with("http"))
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| {
+                    format!(
+                        "https://news.ycombinator.com/item?id={}",
+                        h.get("objectID").and_then(|x| x.as_str()).unwrap_or("")
+                    )
+                });
+            let snippet = format!(
+                "{} points, {} comments — discussion on Hacker News",
+                h.get("points").and_then(|x| x.as_i64()).unwrap_or(0),
+                h.get("num_comments").and_then(|x| x.as_i64()).unwrap_or(0),
+            );
+            Some(WebHit {
+                url: link,
+                title: title.to_string(),
+                snippet,
+            })
+        })
+        .collect()
+}
+
+/// Text between the first `<tag>` and matching `</tag>` in an XML/Atom
+/// blob (arXiv responses are small; hand-parsing keeps the binary
+/// dependency-free).
+fn xml_tag_text(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}");
+    let a = xml.find(&open)?;
+    let rest = &xml[a..];
+    let content_start = rest.find('>')? + 1;
+    let close = format!("</{tag}>");
+    let end_rel = rest[content_start..].find(&close)?;
+    Some(rest[content_start..content_start + end_rel].trim().to_string())
+}
+
+/// arXiv via its keyless export API (arxiv.org).
+fn arxiv_search(agent: &ureq::Agent, query: &str, limit: usize) -> Vec<WebHit> {
+    let url = format!(
+        "https://export.arxiv.org/api/query?search_query=all:{}&max_results={}",
+        url_encode(&query.replace(' ', "+")),
+        limit
+    );
+    let resp = agent
+        .get(&url)
+        .timeout(Duration::from_secs(20))
+        .set("User-Agent", "DeCypherTek/0.1")
+        .call();
+    let body = match resp {
+        Ok(r) => read_body_capped(r, 1_000_000).unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    body.split("<entry>")
+        .skip(1)
+        .filter_map(|e| {
+            let title = xml_tag_text(e, "title")?;
+            let id = xml_tag_text(e, "id")?;
+            let summary = xml_tag_text(e, "summary").unwrap_or_default();
+            let snippet: String = summary.split_whitespace().collect::<Vec<_>>().join(" ");
+            let snippet = if snippet.len() > 300 {
+                let mut end = 300;
+                while !snippet.is_char_boundary(end) {
+                    end -= 1;
                 }
-            }
+                format!("{}…", &snippet[..end])
+            } else {
+                snippet
+            };
+            Some(WebHit {
+                url: id,
+                title,
+                snippet,
+            })
+        })
+        .collect()
+}
+
+/// Keyless web research, multi-source. With a research profile active
+/// (@research <name>.yml), searching is locked to that profile's sites:
+/// `site:`-scoped queries plus the native APIs of sites that have one
+/// (arxiv.org, news.ycombinator.com, wikipedia.org), all filtered to
+/// the profile's hosts. Without a profile it is a general search:
+/// DuckDuckGo results + Wikipedia + Hacker News.
+pub fn web_search(ctx: &ToolCtx, query: &str) -> String {
+    let mut hits: Vec<WebHit> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut note = String::new();
+
+    fn push(hits: &mut Vec<WebHit>, seen: &mut Vec<String>, allowed: &[String], h: WebHit) {
+        if !allowed.is_empty() && !allowed.iter().any(|s| url_in_site(&h.url, s)) {
+            return;
+        }
+        if h.url.starts_with("http") && !seen.contains(&h.url) {
+            seen.push(h.url.clone());
+            hits.push(h);
         }
     }
 
-    if results.is_empty() {
-        "No results found (or network unreachable).".to_string()
+    if !ctx.research_sites.is_empty() {
+        note = format!(
+            "[research profile active — results restricted to: {}]\n\n",
+            ctx.research_sites.join(", ")
+        );
+        // Native APIs first — keyless and reliable for their hosts.
+        for site in &ctx.research_sites {
+            let host = host_of(site);
+            if host == "arxiv.org" || host.ends_with(".arxiv.org") {
+                for h in arxiv_search(&ctx.http, query, 3) {
+                    push(&mut hits, &mut seen, &ctx.research_sites, h);
+                }
+            } else if host.contains("ycombinator") {
+                for h in hn_search(&ctx.http, query, 3) {
+                    push(&mut hits, &mut seen, &ctx.research_sites, h);
+                }
+            } else if host == "wikipedia.org" || host.ends_with(".wikipedia.org") {
+                for h in wikipedia_search(&ctx.http, query, 3) {
+                    push(&mut hits, &mut seen, &ctx.research_sites, h);
+                }
+            }
+        }
+        // site:-scoped queries for the listed sites (best-effort; the
+        // HTML endpoint refuses some datacenter IPs but works from
+        // typical user connections).
+        for site in ctx.research_sites.iter().take(4) {
+            for h in ddg_html_search(&ctx.http, &format!("site:{} {}", host_of(site), query)) {
+                push(&mut hits, &mut seen, &ctx.research_sites, h);
+            }
+        }
+        if hits.is_empty() {
+            return format!(
+                "{note}(no results on the profile's sites — broaden the profile or the query)\n"
+            );
+        }
     } else {
-        results
+        // General search: DuckDuckGo results, then the reliable keyless
+        // sources. If DDG blocks this network, the others still answer.
+        for h in ddg_html_search(&ctx.http, query) {
+            push(&mut hits, &mut seen, &[], h);
+        }
+        let ddg_count = hits.len();
+        for h in wikipedia_search(&ctx.http, query, 3) {
+            push(&mut hits, &mut seen, &[], h);
+        }
+        for h in hn_search(&ctx.http, query, 3) {
+            push(&mut hits, &mut seen, &[], h);
+        }
+        if hits.is_empty() {
+            return "No results found (or network unreachable).".to_string();
+        }
+        if ddg_count == 0 {
+            note = "(DuckDuckGo results unavailable from this network — answering from Wikipedia + Hacker News)\n\n".to_string();
+        }
+    }
+
+    let mut results = note;
+    for h in hits.iter().take(9) {
+        results.push_str(&format!(
+            "[{}] {}\n  {}\n  {}\n\n",
+            host_of(&h.url),
+            h.title,
+            h.snippet,
+            h.url
+        ));
+    }
+    results
+}
+
+/// Readable text of a web page. Under a research profile, only the
+/// profile's sites may be fetched — the search was restricted, so the
+/// reading is too.
+pub fn web_fetch(ctx: &ToolCtx, url: &str) -> String {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return "DENIED: only http(s) URLs can be fetched.".to_string();
+    }
+    if !ctx.research_sites.is_empty() && !ctx.research_sites.iter().any(|s| url_in_site(url, s)) {
+        return format!(
+            "DENIED: the active research profile only allows fetching from: {}",
+            ctx.research_sites.join(", ")
+        );
+    }
+    let resp = ctx
+        .http
+        .get(url)
+        .timeout(Duration::from_secs(20))
+        .set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) DeCypherTek/0.1")
+        .call();
+    let mut body = match resp {
+        Ok(r) => read_body_capped(r, 1_000_000).unwrap_or_default(),
+        Err(e) => return format!("fetch failed: {e}"),
+    };
+    // Strip non-content blocks, then tags, then collapse whitespace.
+    for tag in ["script", "style", "nav", "header", "footer"] {
+        loop {
+            let open = format!("<{tag}");
+            let close = format!("</{tag}>");
+            let Some(a) = body.find(&open) else { break };
+            let Some(b) = body[a..].find(&close) else { break };
+            body.replace_range(a..a + b + close.len(), " ");
+        }
+    }
+    let mut text = String::with_capacity(body.len());
+    let mut in_tag = false;
+    for c in body.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    let text = clean_text(&text);
+    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.len() > 8000 {
+        let mut end = 8000;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}\n…(truncated)", &text[..end])
+    } else if text.is_empty() {
+        "page returned no readable text".to_string()
+    } else {
+        text
     }
 }
 

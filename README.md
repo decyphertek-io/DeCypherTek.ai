@@ -52,6 +52,8 @@ The terminal stays a normal terminal. Everything you type passes straight throug
 | `@chat <task>` | conversation backed by full memory |
 | `@code <task>` | hands-on: read, change, verify — ends with a diff report |
 | `@research <topic>` | memory + web research — ends in a written report with sources |
+| `@research <name>.yml <topic>` | same, but searching only the sites of a research profile (YAML site lists created in `@setup`, stored in the wiki's `research/` folder) |
+| `@upload` | folder-picker TUI (starts at Downloads) — copies picked files into the wiki's `info/` folder and chunks them into RAG memory |
 | `@store` | the MCP store: fuzzy-search TUI over every MCP server on Docker (A-Z) — pull, register, update, disable, uninstall |
 | `@ingest <folder>` | chunk a folder's docs into RAG memory (grants read too) |
 | `@grants read <path>` / `@grants write <path>` | grant folder access |
@@ -79,7 +81,9 @@ The terminal stays a normal terminal. Everything you type passes straight throug
 - **Zero-step setup** — the installer finishes by running `decyphertek.ai` itself; the launcher detects whether the agent has been configured, on a fresh install the walkthrough runs immediately and drops you straight into the `@`-shell afterwards. `decyphertek.ai setup` (or `@setup` inside) re-runs it whenever you want to change the configuration.
 - **The leash (permissions)** — the agent reads/writes folders and tools only as granted: read folders, write folders, per-tool switches (web_search, read_files, write_files, run_command, mcp_servers). Leashed, it can always touch its own data dir and nothing else; tool calls beyond grants come back `DENIED` — logged, respected, reported. Unleashed, folder scopes drop. Leashed + run_command enabled asks you to confirm each command interactively.
 - **Forensic chat logs** — every run leaves a JSONL case file: prompts, model replies, every tool call with arguments, results, final report. Case files are chunked into RAG memory (so past dialogues are recallable), and rotate into monthly `tar.gz` archives after 30 days.
-- **Keyless web research** — DuckDuckGo Instant Answers + Wikipedia search; findings land in the final report and get chunked into memory.
+- **Keyless web research** — real DuckDuckGo result links + snippets (plus a `web_fetch` tool to read a hit in full), layered with keyless native sources (Wikipedia, Hacker News, arXiv) so a blocked endpoint never means an empty report; findings land in the final report and get chunked into memory.
+- **Research profiles** — YAML site lists (`research/<name>.yml`, created in `@setup`, sealed in the vault): `@research <name>.yml <topic>` searches *only those sites* — site-scoped queries plus the sites' native APIs, with `web_fetch` restricted the same way. A baseline `rag-chat.yml` ships as the example.
+- **`@upload`** — a folder-picker TUI (opens at Downloads, walks the tree, `(go up)`/`(done)`) that copies picked files into the wiki's `info/` folder and chunks them into RAG memory: your docs travel with the agent, sealed inside the vault.
 - **Learning loop** — recall memory before a run; instruct the model docs-first (read before using an unfamiliar tool); distill learnings via the `remember` and `write_wiki` tools; every report itself is chunked as `report`-kind knowledge, so next run starts smarter.
 
 ## Ollama on Termux — really slim phone models

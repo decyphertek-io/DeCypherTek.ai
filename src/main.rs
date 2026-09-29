@@ -9,6 +9,7 @@ mod chatlog;
 mod config;
 mod models;
 mod paths;
+mod research;
 mod setup;
 mod shell;
 mod store;
