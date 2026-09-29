@@ -9,9 +9,38 @@ they act like aliases that hand work to the agent and report back.
 - `@chat <task>` — conversation backed by full memory.
 - `@code <task>` — hands-on: read, change, verify; ends with diffs.
 - `@research <topic>` — memory + web; ends in a written report with sources.
+- `@research <name>.yml <topic>` — same, but web searching is locked to
+  the sites of the research profile `name.yml` (see below) instead of a
+  general web search.
 
 While a run is live the screen stays quiet (the case file streams to chat
 logs); when it finishes one TUI report renders and the shell returns.
+
+## Research profiles (research/)
+
+A research profile is a small YAML file in the wiki's `research/` folder:
+
+    name: rag-chat
+    description: RAG + chat research sources
+    sites:
+      - https://arxiv.org
+      - https://en.wikipedia.org
+
+`@research rag-chat.yml <topic>` runs the research with `web_search` and
+`web_fetch` restricted to exactly those sites (site-scoped queries plus
+the keyless native APIs of arxiv.org, news.ycombinator.com and
+wikipedia.org when they are in the profile). Create or change profiles
+in `@setup` — a new one is saved into `research/` automatically. A
+baseline example (`rag-chat.yml`) ships with the agent; view it via
+`@wiki read research/rag-chat.yml`.
+
+## @upload — your docs into the vault (info/)
+
+- `@upload` — opens a folder picker (starting at Downloads; folders
+  navigate, `(go up)` moves up, `(done)` finishes). Picked files are
+  copied into the wiki's `info/` folder and chunked into RAG memory, so
+  they seal into the vault and the agent can read them. Text files are
+  chunked; binaries are stored as-is.
 
 ## @store — MCP tool servers
 
@@ -32,10 +61,11 @@ logs); when it finishes one TUI report renders and the shell returns.
 - `@ingest <folder>` — chunk a folder's docs into RAG memory, grants read.
 - `@grants read <path>` / `@grants write <path>` — grant folder access.
 - `@leash leashed|unleashed` — enforce or drop folder scopes.
-- `@wiki list` / `@wiki read <name>` — browse memory pages.
+- `@wiki list` / `@wiki read <name>` — browse memory pages (also
+  `research/<profile>.yml` and `info/<uploaded-doc>` entries).
 - `@status` — brain, leash, grants, MCP servers, RAG size, wiki size.
-- `@setup` — re-run the walkthrough (brain, folders, tools —
-  including the MCP gate and registered servers).
+- `@setup` — re-run the walkthrough (brain, folders, tools — including
+  the MCP gate, registered servers, and creating research profiles).
 - `@password` — re-key the encrypted vault.
 - `@help` — the list.
 - `exit` (or Ctrl-D) — seal the vault and quit.

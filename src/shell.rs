@@ -15,6 +15,11 @@ pub const HELP: &str = "\
   @chat <task>        conversation backed by full memory
   @code <task>        hands-on: read, change, verify, report diffs
   @research <topic>   web research + memory, ends in a written report
+  @research <n>.yml <topic>
+                      same, but searching only the sites listed in the
+                      research profile <n>.yml (create/edit via @setup)
+  @upload             pick files from a folder browser (Downloads etc.) —
+                      they land in the wiki's info/ folder and RAG memory
   @store              MCP tool-server store: search Docker A-Z (TUI), pull,
                       register — servers launch hardened, internal-only
   @ingest <folder>    chunk a folder's docs into RAG memory (+read grant)
@@ -99,7 +104,7 @@ fn handle(
             crate::store::browse(cfg, paths, rest)?;
             Ok(())
         }
-        "@chat" | "@code" | "@research" => {
+        "@chat" | "@code" => {
             let mode = &head[1..];
             let task = if rest.is_empty() {
                 ask_task(mode)?
@@ -110,7 +115,60 @@ fn handle(
                 println!("(nothing to do — task was empty)");
                 return Ok(());
             }
-            run_agent(cfg, paths, vectors, mode, &task)
+            run_agent(cfg, paths, vectors, mode, &task, &[])
+        }
+        "@research" => {
+            // Optional leading research profile: "@research <name>.yml <topic>"
+            // locks web searching to that profile's sites. A bare first
+            // token that matches a saved profile works too.
+            let mut sites: Vec<String> = Vec::new();
+            let mut topic = rest.to_string();
+            let first = rest.split_whitespace().next().unwrap_or("").to_lowercase();
+            let profiles = crate::research::list(paths).unwrap_or_default();
+            let explicit = first.ends_with(".yml") || first.ends_with(".yaml");
+            let known = profiles.iter().any(|p| {
+                p.trim_end_matches(".yml").trim_end_matches(".yaml") == first
+            });
+            if !first.is_empty() && (explicit || known) {
+                match crate::research::load(paths, &first) {
+                    Ok(profile) => {
+                        tui::info(
+                            "RESEARCH",
+                            &format!(
+                                "profile '{}' — searching only: {}",
+                                profile.name,
+                                profile.sites.join(", ")
+                            ),
+                        );
+                        sites = profile.sites.clone();
+                        topic = rest[first.len()..].trim().to_string();
+                    }
+                    Err(e) => {
+                        tui::error(&e.to_string());
+                        let have = crate::research::list(paths).unwrap_or_default();
+                        if have.is_empty() {
+                            tui::info("RESEARCH", "no profiles yet — @setup creates one, or just run @research <topic> for a general web search.");
+                        } else {
+                            tui::info("RESEARCH", &format!("available: {}", have.join(", ")));
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+            let task = if topic.is_empty() {
+                ask_task("research")?
+            } else {
+                topic
+            };
+            if task.trim().is_empty() {
+                println!("(nothing to do — task was empty)");
+                return Ok(());
+            }
+            run_agent(cfg, paths, vectors, "research", &task, &sites)
+        }
+        "@upload" => {
+            upload_docs(paths, vectors)?;
+            Ok(())
         }
         "@ingest" => {
             if rest.is_empty() {
@@ -305,6 +363,7 @@ fn run_agent(
     vectors: &mut Vectors,
     mode: &str,
     task: &str,
+    research_sites: &[String],
 ) -> Result<()> {
     let spinner_note = console::style(format!(
         "@{mode} running — the screen stays quiet until the report…"
@@ -313,7 +372,7 @@ fn run_agent(
     println!("{spinner_note}");
     let _ = std::io::stdout().flush();
 
-    match crate::agent::run(cfg, paths, vectors, mode, task) {
+    match crate::agent::run(cfg, paths, vectors, mode, task, research_sites) {
         Ok(result) => {
             tui::report(&format!("@{mode} — report"), &result.report);
             tui::report_stat(
@@ -333,6 +392,128 @@ fn run_agent(
             Ok(())
         }
     }
+}
+
+/// @upload: interactive folder browser — the picker opens at Downloads
+/// (or /sdcard/Download on Android) and walks the folder structure;
+/// picked files are copied into the wiki's info/ folder and chunked
+/// into RAG memory, so they seal into the vault and the agent can read
+/// them (wiki + memory). Text files are chunked; binaries are stored
+/// as-is with a note.
+fn upload_docs(paths: &Paths, vectors: &mut Vectors) -> Result<()> {
+    use dialoguer::theme::ColorfulTheme;
+    use dialoguer::Select;
+
+    let theme = ColorfulTheme::default();
+    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
+    let mut dir = [
+        std::path::PathBuf::from("/sdcard/Download"),
+        home.join("storage/downloads"),
+        home.join("Downloads"),
+    ]
+    .into_iter()
+    .find(|p| p.is_dir())
+    .unwrap_or(home);
+
+    tui::info(
+        "UPLOAD",
+        "Pick files to upload: they are copied into the agent's info/ wiki \
+         folder and chunked into RAG memory — sealed into the vault, \
+         readable by the agent. Folders navigate; '(done)' finishes.",
+    );
+
+    loop {
+        let mut dirs: Vec<String> = Vec::new();
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        match std::fs::read_dir(&dir) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    if entry.path().is_dir() {
+                        dirs.push(name);
+                    } else {
+                        files.push(entry.path());
+                    }
+                }
+            }
+            Err(e) => {
+                tui::error(&format!("cannot read {}: {e}", dir.display()));
+                break;
+            }
+        }
+        dirs.sort();
+        files.sort();
+
+        let up = dir
+            .parent()
+            .filter(|p| *p != dir && p.is_dir())
+            .map(|p| p.to_path_buf());
+        let mut items: Vec<String> = vec!["(done — finish uploading)".into()];
+        if up.is_some() {
+            items.push("(go up one folder)".into());
+        }
+        let base = items.len();
+        items.extend(dirs.iter().map(|d| format!("{d}/")));
+        items.extend(
+            files
+                .iter()
+                .map(|f| f.file_name().unwrap_or_default().to_string_lossy().to_string()),
+        );
+
+        let sel = Select::with_theme(&theme)
+            .with_prompt(format!("Folder: {}", dir.display()))
+            .items(&items)
+            .default(0)
+            .interact()?;
+        if sel == 0 {
+            break;
+        }
+        if up.is_some() && sel == 1 {
+            dir = up.unwrap();
+            continue;
+        }
+        let idx = sel - base;
+        if idx < dirs.len() {
+            dir = dir.join(&dirs[idx]);
+            continue;
+        }
+        let file = &files[idx - dirs.len()];
+        let raw_name = file
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        match crate::wiki::info_file_path(paths, &raw_name) {
+            Ok(dest) => match std::fs::copy(file, &dest) {
+                Ok(_) => match std::fs::read_to_string(&dest) {
+                    Ok(text) => {
+                        let (chunks, added) =
+                            vectors.insert_text(&format!("info/{raw_name}"), "info-doc", &text)?;
+                        tui::info(
+                            "UPLOAD",
+                            &format!(
+                                "{raw_name} → info/ — {added} of {chunks} chunks into RAG \
+                                 (readable via memory and @wiki read info/{raw_name})"
+                            ),
+                        );
+                    }
+                    Err(_) => tui::warn(
+                        "UPLOAD",
+                        &format!(
+                            "{raw_name} copied into info/ — binary, stored but not \
+                             text-chunked into RAG"
+                        ),
+                    ),
+                },
+                Err(e) => tui::error(&format!("copy failed: {e}")),
+            },
+            Err(e) => tui::error(&format!("bad file name '{raw_name}': {e}")),
+        }
+    }
+    Ok(())
 }
 
 fn change_password(paths: &Paths, key: &mut [u8; 32], salt: &[u8; 16]) -> Result<()> {

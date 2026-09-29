@@ -65,6 +65,10 @@ check("The Leash" in out or "leash" in out.lower(), "leash prompt appeared")
 send("\r")                     # leashed
 drain(1.5)                     # tool multiselect
 send("\r")                     # defaults: web_search + read_files
+drain(1.5)                     # research profile confirm
+out = text()
+check("research profile" in out.lower(), "research profile prompt appeared")
+send("\r")                     # default: skip creating one now
 drain(3.0)                     # next: fresh-install password
 out = text()
 check("Vault password" in out, "new vault password prompt")

@@ -1,0 +1,10 @@
+# DeCypherTek research profile — used by @research <name>.yml <topic>
+# Web searching during the run is locked to these sites (hosts or URLs).
+# Create your own with @setup, or edit this file and re-seal the vault.
+name: rag-chat
+description: RAG, chat models and retrieval research sources
+sites:
+  - https://arxiv.org
+  - https://en.wikipedia.org
+  - https://news.ycombinator.com
+  - https://huggingface.co
