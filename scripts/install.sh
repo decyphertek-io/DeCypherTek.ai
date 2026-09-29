@@ -6,19 +6,36 @@
 # Debian Linux home first, and every real step happens INSIDE that
 # Linux container, in this order:
 #   1. apt update
-#   2. apt install -y docker.io docker-compose curl gnupg ca-certificates
+#   2. apt install -y podman podman-docker podman-compose curl gnupg
+#      ca-certificates
 #   3. LAST: download the latest DeCypherTek.ai release and install it
 #      as /usr/local/bin/decyphertek.ai inside Debian
 #
-# Docker does not work in Termux proper (no root), so that proot Debian
-# is where the daemon lives (best-effort start included). Back in
-# Termux, typing `decyphertek.ai` runs a SOURCED ALIAS (installed into
-# ~/.bashrc — plus the launcher script it points to) that drops you
-# straight into the proot Debian and launches the agent there.
-# You get a regular terminal that passes through everything typed
-# except @-commands — @chat / @code / @research / @store wake the agent.
-# MCP tool servers pulled via @store run in hardened containers that
-# talk only to the agent (network=none, cap-drop=ALL, stdio-only).
+# Containers there run on PODMAN, not docker+dockerd: dockerd cannot
+# boot reliably under proot on Android kernels (its default storage
+# driver wants an overlayfs mount proot will never provide, and the
+# daemon lifecycle fights the container session it dies with). Podman
+# is daemonless — no daemon, no bootstrapping a proot-safe state. The
+# bootstrap writes the vfs storage driver to /etc/containers/
+# storage.conf (the proot-safe mode), and `podman-docker` installs a
+# docker-compatible CLI, so the agent's @store keeps issuing plain
+# `docker` commands unchanged.
+#
+# The Debian instance is custom-named 'decyphertek'
+# (`proot-distro install debian --override-alias decyphertek`), so it
+# never collides with or overwrites a Debian proot you installed
+# yourself under the plain 'debian' alias — and scripts/uninstall.sh
+# removes exactly the 'decyphertek' instance.
+#
+# Containers can never run in Termux proper (no root, no cgroups); that
+# proot Debian is where they live. Back in Termux, typing `decyphertek.ai`
+# runs a SOURCED ALIAS (installed into ~/.bashrc — plus the launcher
+# script it points to) that drops you straight into the proot Debian and
+# launches the agent there. You get a regular terminal that passes
+# through everything typed except @-commands — @chat / @code /
+# @research / @store wake the agent. MCP tool servers pulled via @store
+# run in hardened containers that talk only to the agent (network=none,
+# cap-drop=ALL, stdio-only).
 #
 # On Linux/macOS: same single binary on PATH as `decyphertek.ai`, plus a
 # best-effort Docker setup so @store works there too.
@@ -28,13 +45,17 @@
 # walkthrough (persona, OpenRouter/Ollama, the Leash, @store servers are
 # optional adds), and drops you in the @-shell after.
 # Re-run any time to update to the latest release.
+# Removal, when you want it: scripts/uninstall.sh (vault kept unless
+# --purge).
 set -euo pipefail
 
 REPO="decyphertek-io/DeCypherTek.ai"
 BIN_NAME="decyphertek.ai"
 DATA_DIR="${HOME}/.decyphertek.ai"
 PD_ROOT=""    # set on Termux: debian rootfs location
-PROOT_DISTRO="debian"
+# OUR Debian instance, under its own alias: a Debian proot the user
+# installed under the plain 'debian' alias is never touched.
+PROOT_DISTRO="decyphertek"
 
 say()  { printf '\033[36m>>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m ✓\033[0m %s\n' "$*"; }
@@ -93,21 +114,23 @@ if [[ "$TERMUX" != 1 ]]; then
 fi
 echo
 
-# =========================================== TERMUX: proot Debian + Docker
-# Docker cannot run in Termux itself (no root, no cgroups). The agent's
-# home becomes a proot Debian Linux where Docker CAN be installed, and
-# the daemon is started with bridge/iptables off and the vfs storage
-# driver (proot cannot mount overlayfs, so the default driver dies at
-# boot on Android) — the proot-safe recipe.
-# @store's MCP servers then run in hardened containers — network=none
-# anyway.
+# =========================================== TERMUX: proot Debian + Podman
+# Containers cannot run in Termux itself (no root, no cgroups). The
+# agent's home becomes a proot Debian Linux, custom-aliased
+# 'decyphertek' so it never collides with a Debian proot the user
+# installed by hand. Inside, the runtime is podman — daemonless, with
+# `podman-docker` providing the docker-compatible CLI @store already
+# speaks — configured to the vfs storage driver because proot cannot
+# mount overlayfs. @store's MCP servers then run in hardened containers
+# — network=none anyway.
 #
 # proot-distro v5+ pulls OCI images and keeps the rootfs under
 # containers/<name>/rootfs; v4 used plugin tarballs under
 # installed-rootfs/<name>. Support both layouts so fresh installs and
 # proot-distro upgrades keep working. Debian is first-class in
 # proot-distro on every architecture (aarch64, armhf, x86_64), so one
-# plain `proot-distro install debian` covers every device.
+# plain `proot-distro install debian` covers every device — with
+# --override-alias giving it the dedicated 'decyphertek' name.
 
 pd_locate_rootfs() {
   PD_ROOT=""
@@ -123,16 +146,62 @@ pd_locate_rootfs() {
   return 1
 }
 
+# rootfs path of ANY proot-distro alias — used to fingerprint legacy
+# instances before adopting them.
+pd_rootfs_of() {  # $1 = alias
+  local cand
+  for cand in \
+    "${PREFIX}/var/lib/proot-distro/containers/$1/rootfs" \
+    "${PREFIX}/var/lib/proot-distro/installed-rootfs/$1"; do
+    if [[ -d "$cand" ]]; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# DeCypherTek's fingerprint inside a proot instance: every installer
+# release since the Termux rewrite wrote its launcher/binary there.
+ours_by_fingerprint() {  # $1 = rootfs path
+  [[ -f "$1/usr/local/bin/dct-launch" ]] || [[ -f "$1/usr/local/bin/$BIN_NAME" ]]
+}
+
 pd_install_debian() {
-  say "Installing the Debian rootfs image…"
-  # Keep the local container name "debian" for the rest of the flow.
-  proot-distro install "$PROOT_DISTRO" >/dev/null 2>&1
+  say "Installing the Debian rootfs image (as the '$PROOT_DISTRO' instance)…"
+  # Custom alias so OUR container is separate from any user-installed
+  # Debian proot: theirs stays untouched, ours is removable by name.
+  if ! proot-distro install debian --override-alias "$PROOT_DISTRO" >/dev/null 2>&1; then
+    # Older proot-distro builds spelled the flag differently.
+    proot-distro install debian --name "$PROOT_DISTRO" >/dev/null 2>&1
+  fi
+}
+
+# Older installers of this agent used the plain 'debian' alias for THEIR
+# container. If such an instance carries our fingerprint it is ours —
+# retire it and replace it with the dedicated 'decyphertek' instance. A
+# Debian proot without the fingerprint belongs to the user: untouched.
+adopt_legacy_debian() {
+  local legacy
+  if legacy="$(pd_rootfs_of debian)"; then
+    if ours_by_fingerprint "$legacy"; then
+      say "Found an older DeCypherTek Debian instance under the plain 'debian' alias —"
+      say "replacing it with the dedicated '$PROOT_DISTRO' instance…"
+      proot-distro remove debian --force >/dev/null 2>&1 \
+        && ok "previous 'debian' instance removed" \
+        || warn "could not remove it — run 'proot-distro remove debian --force' once."
+    else
+      warn "a Debian proot named 'debian' exists and is NOT ours — leaving it"
+      warn "untouched; the agent gets its own '$PROOT_DISTRO' instance."
+    fi
+  fi
 }
 
 # The Debian-side bootstrap script. Written into the rootfs and run
 # INSIDE the container, strictly in this order: apt update first, then
-# the Docker toolchain, and the DeCypherTek.ai release download LAST —
-# the agent binary is never staged in Termux.
+# the podman runtime + its docker-compatible CLI, and the
+# DeCypherTek.ai release download LAST — the agent binary is never
+# staged in Termux.
 dct_write_bootstrap() {
   {
     printf '#!/bin/bash\n'
@@ -165,9 +234,11 @@ esac
 say "Debian: apt update first…"
 apt-get update -qq >/dev/null 2>&1 || warn "apt update hiccup; continuing"
 
-# 2) The Docker toolchain + TLS certs + https tools inside Debian.
-say "Debian: apt install docker.io docker-compose curl gnupg ca-certificates…"
-PKGS=(docker.io docker-compose curl gnupg ca-certificates)
+# 2) The container runtime (podman + a docker-compatible CLI for the
+#    agent) + TLS certs + https tools inside Debian. No dockerd: podman
+#    is daemonless, so there is no daemon to fail at boot under proot.
+say "Debian: apt install podman podman-docker podman-compose curl gnupg ca-certificates…"
+PKGS=(podman podman-docker podman-compose curl gnupg ca-certificates)
 if ! apt-get install -y -qq "${PKGS[@]}" >/dev/null 2>&1; then
   warn "apt could not install the whole set at once — trying package by package…"
   for pk in "${PKGS[@]}"; do
@@ -175,7 +246,13 @@ if ! apt-get install -y -qq "${PKGS[@]}" >/dev/null 2>&1; then
   done
 fi
 command -v curl >/dev/null 2>&1 || die "curl is required inside Debian — re-run the installer."
-ok "Debian: docker.io docker-compose curl gnupg ca-certificates ready"
+# podman's default storage driver (overlay) cannot mount overlayfs
+# under proot — force the vfs driver: the proot-safe mode.
+if command -v podman >/dev/null 2>&1; then
+  mkdir -p /etc/containers
+  printf '[storage]\ndriver = "vfs"\n' > /etc/containers/storage.conf
+fi
+ok "Debian: podman podman-docker podman-compose curl gnupg ca-certificates ready"
 
 # 3) LAST — the latest DeCypherTek.ai release, downloaded and installed
 #    here inside the Linux container (not in Termux).
@@ -222,23 +299,27 @@ BOOTSTRAP
 
 termux_proot_home() {
   say "Setting up the proot Debian Linux home for the agent (this is where"
-  say "Docker — and therefore MCP tool servers from @store — can live)…"
+  say "containers — and therefore MCP tool servers from @store — can live)…"
+
+  # Older agent installs used the stock 'debian' alias; retire ours and
+  # never touch the user's own.
+  adopt_legacy_debian
 
   if ! pd_locate_rootfs; then
     pd_install_debian \
-      || die "proot-distro could not install Debian — run 'pkg upgrade' and re-run."
+      || die "proot-distro could not install Debian (instance '$PROOT_DISTRO') — run 'pkg upgrade' and re-run."
     pd_locate_rootfs \
-      || die "debian rootfs not found after install — re-run to retry."
-    ok "debian linux rootfs installed"
+      || die "'$PROOT_DISTRO' rootfs not found after install — re-run to retry."
+    ok "debian linux rootfs installed (instance: $PROOT_DISTRO)"
   else
-    ok "debian linux rootfs already present"
+    ok "debian linux rootfs already present (instance: $PROOT_DISTRO)"
   fi
 
   # Everything below runs inside the Debian container, in order — and
   # the DeCypherTek.ai download is the LAST step.
   dct_write_bootstrap
-  say "Inside Debian: apt update, then dockerd's toolchain (docker.io"
-  say "docker-compose curl gnupg ca-certificates), then the release download…"
+  say "Inside Debian: apt update, then the podman runtime (podman"
+  say "podman-docker podman-compose curl gnupg ca-certificates), then the release download…"
   if ! proot-distro login "$PROOT_DISTRO" -- bash /root/dct-bootstrap.sh; then
     rm -f "$PD_ROOT/root/dct-bootstrap.sh"
     die "the Debian bootstrap failed — run 'pkg upgrade' and re-run the installer."
@@ -246,52 +327,35 @@ termux_proot_home() {
   rm -f "$PD_ROOT/root/dct-bootstrap.sh"
   ok "binary deployed inside debian: /usr/local/bin/$BIN_NAME"
 
-  # Launcher inside debian: start dockerd if needed (proot-safe flags),
-  # then exec the agent. Setup detection is the agent's own job. A flag
-  # file (in the bind-mounted vault dir) marks kernels that refused the
-  # daemon, so later launches don't wait on a dead dockerd.
+  # Launcher inside debian: straight into the agent. Containers there
+  # run on podman — daemonless, its CLI already docker-compatible — with
+  # the vfs storage driver configured by the bootstrap, so there is no
+  # daemon to nurse into a proot-safe state at launch time either.
   mkdir -p "$PD_ROOT/usr/local/bin"
   cat > "$PD_ROOT/usr/local/bin/dct-launch" <<'LAUNCH'
 #!/bin/bash
-# DeCypherTek on proot Debian: dockerd best-effort + straight into the agent.
-DATA=/root/.decyphertek.ai
-mkdir -p "$DATA" 2>/dev/null || DATA=/root
-if command -v docker >/dev/null 2>&1; then
-  if timeout 5 docker info >/dev/null 2>&1; then
-    rm -f "$DATA/.dockerd-broken" 2>/dev/null || true
-  elif [[ ! -f "$DATA/.dockerd-broken" ]]; then
-    # proot cannot mount overlayfs, so dockerd's default storage driver
-    # dies at boot on Android. vfs works under proot — vfs + iptables/
-    # bridge off is the proot-safe recipe.
-    (dockerd --iptables=false --bridge=none --storage-driver=vfs >"$DATA/dockerd.log" 2>&1 &)
-    for _ in $(seq 1 20); do
-      timeout 5 docker info >/dev/null 2>&1 && break
-      sleep 1
-    done
-    if ! timeout 5 docker info >/dev/null 2>&1; then
-      touch "$DATA/.dockerd-broken" 2>/dev/null || true
-      echo "note: dockerd did not start on this device/kernel — @store will report it; log: $DATA/dockerd.log"
-    fi
-  fi
-fi
+# DeCypherTek on proot Debian: straight into the agent. Containers run
+# on podman (daemonless, docker-compatible CLI via podman-docker; the
+# vfs storage driver lives in /etc/containers/storage.conf), so no
+# daemon needs starting before the agent itself.
 exec /usr/local/bin/decyphertek.ai "$@"
 LAUNCH
   chmod +x "$PD_ROOT/usr/local/bin/dct-launch"
 
-  # Try the daemon once, inside ONE proot session (a daemon dies with its
-  # session — so start + probe must share the login).
-  say "Probing the Docker daemon inside proot Debian (first boot may take a moment)…"
+  # Ask the runtime once inside a proot session — podman is daemonless,
+  # so unlike a dockerd setup there is nothing to boot or keep alive:
+  # this `docker info` (through podman-docker) just warms up the vfs
+  # storage area on first run.
+  say "Checking the container runtime inside proot Debian (first run may take a moment)…"
   PROBE="$(proot-distro login "$PROOT_DISTRO" -- bash -c \
-    '/usr/local/bin/dct-launch --version >/dev/null 2>&1; \
-     if timeout 5 docker info >/dev/null 2>&1; then echo ok; else echo off; fi' \
+    'if timeout 30 docker info >/dev/null 2>&1; then echo ok; else echo off; fi' \
     2>/dev/null || echo off)"
   if [[ "$PROBE" == ok ]]; then
-    ok "dockerd answered inside proot — @store MCP servers fully operational."
+    ok "podman answered inside proot — @store MCP servers fully operational."
   else
-    warn "dockerd did not come up on this device/kernel. The agent runs fine;"
-    warn "@store lists and registers servers; launching them needs a daemon —"
-    warn "either this same flow on a device where proot dockerd works, or a"
-    warn "DOCKER_HOST pointed at a LAN machine. Log: /root/.decyphertek.ai/dockerd.log"
+    warn "the container runtime did not answer inside proot Debian. The agent"
+    warn "itself runs fine; @store lists and registers servers, launching"
+    warn "containers needs a device/kernel that lets the runtime start them."
   fi
   echo
 
@@ -305,7 +369,8 @@ LAUNCH
 #!/data/data/com.termux/files/usr/bin/bash
 # DeCypherTek.ai — from Termux straight into the proot Debian home.
 # The vault data stays in real Termux home and is bind-mounted in
-# (survives container rebuilds); the agent + Docker live inside Debian.
+# (survives container rebuilds); the agent + its containers (podman)
+# live inside Debian.
 # /sdcard and the rest of shared storage are bound by proot-distro itself.
 DATA="\$HOME/.decyphertek.ai"
 mkdir -p "\$DATA"
