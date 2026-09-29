@@ -23,6 +23,10 @@ pub struct ToolCtx<'a> {
     pub paths: &'a Paths,
     pub vectors: &'a crate::vector::Vectors,
     pub http: ureq::Agent,
+    /// Live MCP tool servers (Docker containers, stdio-only) spawned for
+    /// this run by src/store.rs. Empty unless servers are registered
+    /// (via @store), enabled, and Docker is available.
+    pub mcp: Vec<crate::store::McpChild>,
 }
 
 pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
@@ -73,8 +77,8 @@ fn tool_spec(
     ToolSpec {
         typ: "function",
         function: ToolFn {
-            name,
-            description,
+            name: name.into(),
+            description: description.into(),
             parameters,
         },
     }
@@ -133,7 +137,7 @@ fn may_write(cfg: &Config, paths: &Paths, path: &str) -> Result<PathBuf> {
 
 // ---------------- execution ----------------
 
-pub fn run(ctx: &ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) -> String {
+pub fn run(ctx: &mut ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) -> String {
     let args: serde_json::Value =
         serde_json::from_str(args_json).unwrap_or(serde_json::Value::Null);
     let get = |k: &str| {
@@ -216,7 +220,14 @@ pub fn run(ctx: &ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) -> Str
                 }
             }
         }
-        _ => format!("UNKNOWN TOOL: {name}"),
+        _ => {
+            // MCP tool servers registered via @store: `mcp_<server>_<tool>`.
+            if name.starts_with(crate::store::MCP_TOOL_PREFIX) {
+                crate::store::dispatch(ctx, name, args_json)
+            } else {
+                format!("UNKNOWN TOOL: {name}")
+            }
+        }
     };
 
     log.log(
@@ -409,6 +420,7 @@ mod tests {
             paths,
             vectors,
             http: ureq::AgentBuilder::new().build(),
+            mcp: Vec::new(),
         }
     }
 
@@ -417,10 +429,10 @@ mod tests {
         let (paths, mut cfg) = tmp("leashed-deny");
         cfg.read_paths = vec![];
         let vectors = Vectors::open(&paths.vector_db).unwrap();
-        let c = ctx(&paths, &cfg, &vectors);
+        let mut c = ctx(&paths, &cfg, &vectors);
         let mut log = ChatLog::new(&paths).unwrap();
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "read_file",
             &json!({ "path": "/etc/hostname" }).to_string(),
@@ -436,9 +448,9 @@ mod tests {
         std::fs::write(&secret, "own data").unwrap();
         let vectors = Vectors::open(&paths.vector_db).unwrap();
         let mut log = ChatLog::new(&paths).unwrap();
-        let c = ctx(&paths, &cfg, &vectors);
+        let mut c = ctx(&paths, &cfg, &vectors);
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "read_file",
             &json!({ "path": secret.to_string_lossy() }).to_string(),
@@ -455,9 +467,9 @@ mod tests {
         let mut log = ChatLog::new(&paths).unwrap();
 
         cfg.write_paths = vec![];
-        let c = ctx(&paths, &cfg, &vectors);
+        let mut c = ctx(&paths, &cfg, &vectors);
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "write_file",
             &json!({ "path": victim.to_string_lossy(), "content": "x" }).to_string(),
@@ -466,9 +478,9 @@ mod tests {
         assert!(!victim.exists());
 
         cfg.leash = "unleashed".into();
-        let c = ctx(&paths, &cfg, &vectors);
+        let mut c = ctx(&paths, &cfg, &vectors);
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "write_file",
             &json!({ "path": victim.to_string_lossy(), "content": "x" }).to_string(),
@@ -483,9 +495,9 @@ mod tests {
         let (paths, cfg) = tmp("cmd");
         let vectors = Vectors::open(&paths.vector_db).unwrap();
         let mut log = ChatLog::new(&paths).unwrap();
-        let c = ctx(&paths, &cfg, &vectors);
+        let mut c = ctx(&paths, &cfg, &vectors);
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "run_command",
             &json!({ "command": "echo hi" }).to_string(),
@@ -499,16 +511,16 @@ mod tests {
         let (paths, cfg) = tmp("mem");
         let vectors = Vectors::open(&paths.vector_db).unwrap();
         let mut log = ChatLog::new(&paths).unwrap();
-        let c = ctx(&paths, &cfg, &vectors);
+        let mut c = ctx(&paths, &cfg, &vectors);
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "remember",
             &json!({ "knowledge": "the decoy server lives at 10.0.0.9" }).to_string(),
         );
         assert!(out.contains("Stored"), "{out}");
         let out = run(
-            &c,
+            &mut c,
             &mut log,
             "memory_search",
             &json!({ "query": "where is the decoy server" }).to_string(),
@@ -522,8 +534,8 @@ mod tests {
         let (paths, cfg) = tmp("unknown");
         let vectors = Vectors::open(&paths.vector_db).unwrap();
         let mut log = ChatLog::new(&paths).unwrap();
-        let c = ctx(&paths, &cfg, &vectors);
-        let out = run(&c, &mut log, "teleport", "{}");
+        let mut c = ctx(&paths, &cfg, &vectors);
+        let out = run(&mut c, &mut log, "teleport", "{}");
         assert!(out.contains("UNKNOWN TOOL"), "{out}");
         let _ = std::fs::remove_dir_all(&paths.root);
     }

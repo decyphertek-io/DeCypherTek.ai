@@ -15,6 +15,8 @@ pub const HELP: &str = "\
   @chat <task>        conversation backed by full memory
   @code <task>        hands-on: read, change, verify, report diffs
   @research <topic>   web research + memory, ends in a written report
+  @store              MCP tool-server store: search Docker A-Z (TUI), pull,
+                      register — servers launch hardened, internal-only
   @ingest <folder>    chunk a folder's docs into RAG memory (+read grant)
   @grants read <p>    grant a folder to read
   @grants write <p>   grant a folder to write
@@ -22,7 +24,7 @@ pub const HELP: &str = "\
   @status             current agent, brain, leash, grants, memory
   @wiki list          list wiki memory pages
   @wiki read <name>   print a wiki page
-  @setup              re-run the walkthrough (persona, brain, grants)
+  @setup              re-run the walkthrough (persona, brain, grants, tools)
   @password           change the vault password
   @help               this help
   exit                seal the vault and quit
@@ -92,6 +94,10 @@ fn handle(
         "exit" | "quit" | "@exit" | "@quit" => Ok(()),
         "@help" | "help" => {
             println!("{HELP}");
+            Ok(())
+        }
+        "@store" => {
+            crate::store::browse(cfg, paths, rest)?;
             Ok(())
         }
         "@chat" | "@code" | "@research" => {
@@ -186,10 +192,26 @@ fn handle(
         "@status" => {
             let n = vectors.count()?;
             let pages = crate::wiki::list(paths)?.len();
+            let mcp = if cfg.mcp_servers.is_empty() {
+                "(none — @store adds them)".to_string()
+            } else {
+                cfg.mcp_servers
+                    .iter()
+                    .map(|s| {
+                        format!(
+                            "{}{} {}",
+                            s.name,
+                            if s.enabled { "" } else { " (off)" },
+                            s.image
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n               ")
+            };
             tui::info(
                 "STATUS",
                 &format!(
-                    "version        {}\npersona         {}\nbrain           {}\nleash           {}\nread grants     {}\nwrite grants    {}\ntools           {}\nRAG chunks      {}\nwiki pages      {}\nvault           {}",
+                    "version        {}\npersona         {}\nbrain           {}\nleash           {}\nread grants     {}\nwrite grants    {}\ntools           {}\nMCP servers    {}{}\nRAG chunks      {}\nwiki pages      {}\nvault           {}",
                     env!("CARGO_PKG_VERSION"),
                     cfg.persona,
                     cfg.backend_summary(),
@@ -197,6 +219,8 @@ fn handle(
                     if cfg.read_paths.is_empty() { "(none)".into() } else { cfg.read_paths.join(", ") },
                     if cfg.write_paths.is_empty() { "(none)".into() } else { cfg.write_paths.join(", ") },
                     crate::agent::enabled_tools(cfg),
+                    if cfg.tool_mcp { "enabled" } else { "gate off (@setup)" },
+                    if cfg.mcp_servers.is_empty() { String::new() } else { format!("\n               {mcp}") },
                     n,
                     pages,
                     paths.vault_file.display(),
@@ -301,6 +325,9 @@ fn run_agent(
                     result.elapsed_secs, result.tool_calls, result.iterations
                 ),
             );
+            for w in &result.warnings {
+                tui::warn("RUN", w);
+            }
             Ok(())
         }
         Err(e) => {

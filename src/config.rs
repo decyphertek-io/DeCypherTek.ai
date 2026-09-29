@@ -8,6 +8,21 @@ pub enum Provider {
     OpenRouter,
     Ollama,
 }
+/// One registered MCP tool server (installed from @store). The agent runs
+/// these in hardened Docker containers that talk ONLY to the agent over
+/// stdio — no network, no capabilities (see src/store.rs).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpServer {
+    /// Short handle, e.g. "github" — tools surface as `mcp_<name>_<tool>`.
+    pub name: String,
+    /// Docker image, e.g. "ghcr.io/github/github-mcp-server".
+    pub image: String,
+    pub enabled: bool,
+    /// ISO timestamp of when it was added from @store (cosmetic).
+    #[serde(default)]
+    pub added: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub version: u32,
@@ -29,6 +44,18 @@ pub struct Config {
     pub tool_read_files: bool,
     pub tool_write_files: bool,
     pub tool_run_command: bool,
+    /// MCP tool servers (from @store): master gate. Servers themselves are
+    /// registered in `mcp_servers`; launching also requires Docker.
+    #[serde(default = "default_true")]
+    pub tool_mcp: bool,
+    /// MCP servers registered through @store; stored in the vault with
+    /// everything else. Old configs without the field load as empty.
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServer>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -49,6 +76,8 @@ impl Default for Config {
             tool_read_files: true,
             tool_write_files: false,
             tool_run_command: false,
+            tool_mcp: true,
+            mcp_servers: Vec::new(),
         }
     }
 }

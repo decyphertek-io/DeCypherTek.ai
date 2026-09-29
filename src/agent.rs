@@ -49,6 +49,9 @@ pub struct RunResult {
     pub tool_calls: usize,
     pub iterations: usize,
     pub elapsed_secs: u64,
+    /// Session-level notes for the shell to surface after the report
+    /// (e.g. MCP servers that failed to launch this run).
+    pub warnings: Vec<String>,
 }
 
 pub fn run(
@@ -121,13 +124,22 @@ pub fn run(
         .timeout_connect(std::time::Duration::from_secs(30))
         .build();
 
-    let ctx = ToolCtx {
+    // MCP tool servers (@store): hardened containers, stdio-only. Any that
+    // fail to launch become visible warnings instead of silent losses.
+    let (mcp_pool, warnings) = crate::store::spawn_pool(cfg);
+    for w in &warnings {
+        log.log("mcp_warning", &truncate(w, 500));
+    }
+
+    let mut ctx = ToolCtx {
         cfg,
         paths,
         vectors,
         http,
+        mcp: mcp_pool,
     };
-    let tool_specs = crate::tools::specs(cfg);
+    let mut tool_specs = crate::tools::specs(cfg);
+    tool_specs.extend(crate::store::pool_specs(&ctx.mcp));
 
     let report;
     let mut tool_calls = 0usize;
@@ -161,7 +173,7 @@ pub fn run(
                 for call in &calls {
                     tool_calls += 1;
                     let result = crate::tools::run(
-                        &ctx,
+                        &mut ctx,
                         &mut log,
                         &call.function.name,
                         &call.function.arguments,
@@ -185,11 +197,13 @@ pub fn run(
         let _ = vectors.insert_text("chatlog", "chatlog", &chat_text);
     }
 
+    // Registered MCP containers die with the run (Drop in src/store.rs).
     Ok(RunResult {
         report,
         tool_calls,
         iterations: iterations.min(MAX_ITERS),
         elapsed_secs: started.elapsed().as_secs(),
+        warnings,
     })
 }
 
@@ -201,18 +215,24 @@ fn list_or(v: &[String]) -> String {
 }
 
 pub fn enabled_tools(cfg: &Config) -> String {
-    let mut t = vec!["memory", "wiki"];
+    let mut t: Vec<String> = vec!["memory".into(), "wiki".into()];
     if cfg.tool_web_search {
-        t.push("web_search");
+        t.push("web_search".into());
     }
     if cfg.tool_read_files {
-        t.push("read_files");
+        t.push("read_files".into());
     }
     if cfg.tool_write_files {
-        t.push("write_files");
+        t.push("write_files".into());
     }
     if cfg.tool_run_command {
-        t.push("run_command");
+        t.push("run_command".into());
+    }
+    if cfg.tool_mcp {
+        let n = cfg.mcp_servers.iter().filter(|s| s.enabled).count();
+        if n > 0 {
+            t.push(format!("mcp_servers({n}, hardened docker, internal-only)"));
+        }
     }
     t.join(", ")
 }

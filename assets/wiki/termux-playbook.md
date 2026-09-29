@@ -1,21 +1,36 @@
 # Termux Playbook
 
-DeCypherTek runs natively in Termux on Android — a single static musl
-binary, no root, no Docker, no interpreter.
+DeCypherTek runs on Android with a proot Arch Linux home — a single static
+musl binary, no root, with Docker (and MCP tool servers from `@store`)
+inside the proot container.
 
 ## Install (one command, same as anywhere)
 
     curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash
 
-The script auto-detects aarch64/armv7, downloads the latest release binary,
-installs light prerequisites, and drops you into the TUI walkthrough.
+The script auto-detects aarch64/armv7, downloads the latest release
+binary, and on Termux bootstraps a proot Arch Linux home:
+
+- `proot-distro` Arch gets the binary at `/usr/local/bin/decyphertek`
+  and Docker via pacman (best-effort; some kernels refuse the daemon).
+- The `decyphertek` command in Termux becomes a wrapper that enters
+  the proot Arch and starts the agent there — dockerd is started
+  automatically with `--iptables=false --bridge=none` (proot-safe mode).
+- The vault stays in real Termux home (`~/.decyphertek.ai`) and is
+  bind-mounted in, so it survives container reinstalls; `/sdcard` is
+  mounted at `/sdcard` when present.
 
 ## Why it works on a phone
 
 - One static binary (aarch64-unknown-linux-musl): no runtime to install.
 - Memory is two files in the vault: SQLite + markdown. No external DB.
 - The brain is OpenRouter by default — the phone only makes HTTPS calls.
-- Tools run as local processes; no containers are required.
+- MCP tool servers from `@store` run in hardened Docker containers inside
+  the proot Arch: `--network=none`, all capabilities dropped — they can
+  only ever answer the agent over stdio.
+- If this device's kernel refuses dockerd (proot limits), the agent runs
+  everything else natively; point `DOCKER_HOST` at a LAN machine for
+  @store servers, or re-run on a device where the daemon comes up.
 
 ## Optional: local models with Ollama
 

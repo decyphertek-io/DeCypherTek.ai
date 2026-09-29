@@ -74,9 +74,15 @@ drain(2.0)
 out = text()
 check("Repeat" in out, "password repeat prompt")
 send("e2e-password-123\r")
-drain(3.0)                     # seal + exit
+drain(3.0)                     # seal, then straight into the @-shell
 out = text()
 check("Sealed" in out, "seal confirmation")
+check("UNSEALED" in out, "first session auto-continues into the @-shell")
+
+send("exit\r")                  # seal on exit from the first session
+drain(2.5)
+out = text()
+check("Sealed" in out, "seal on first-session exit")
 
 rc = p.wait(timeout=10)
 check(rc == 0, "process exited cleanly")
