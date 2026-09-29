@@ -1,7 +1,7 @@
 //! DeCypherTek.ai — one Rust binary, runs anywhere: Termux on Android first,
 //! every other Linux (or macOS) from the same release pipeline.
 //!
-//! Lifecycle: launch → password → vault unseals into staging/ → the @-shell
+//! Lifecycle: launch → password → vault unseals into staging/ → the slash shell
 //! runs → exit seals everything back into the encrypted vault.
 
 mod agent;
@@ -28,7 +28,7 @@ const HELP: &str = "\
 DeCypherTek.ai — a customizable, self-learning AI agent in one Rust binary.
 
 USAGE:
-  decyphertek.ai         launch the @-shell (asks vault password, decrypts memory)
+  decyphertek.ai         launch the slash shell (asks vault password, decrypts memory)
   decyphertek.ai setup   run the first-time walkthrough wizard (brain, grants)
   decyphertek.ai --help  this help
   decyphertek.ai --version  print version
@@ -113,7 +113,7 @@ fn cmd_setup() -> Result<()> {
 }
 
 /// `decyphertek.ai` — the normal flow: detect setup state, run the walkthrough
-/// automatically on a fresh install, and land in the @-shell either way.
+/// automatically on a fresh install, and land in the slash shell either way.
 fn cmd_run() -> Result<()> {
     let paths = Paths::from_home().context("locate home directory")?;
     std::fs::create_dir_all(&paths.root)

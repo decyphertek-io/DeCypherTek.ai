@@ -1,0 +1,139 @@
+# DeCypherTek.ai — SonarQube App Scan (manual only: Actions → SonarQube Scan → Run workflow).
+#
+# Runs SonarCloud against the branch it is dispatched on, then pulls every
+# open finding (issues + security hotspots, paginated) back down into
+# appsec/ as JSON + a readable TXT report, and commits the report to the
+# same branch. Fix from the findings, rescan to confirm the list shrinks.
+# Requires the SONAR_TOKEN secret (same org token used by the langtek scan).
+
+name: SonarQube App Scan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to commit the report back to appsec/
+
+jobs:
+  sonarqube:
+    name: SonarQube
+    runs-on: ubuntu-latest
+    env:
+      SONAR_HOST: https://sonarcloud.io
+      SONAR_PROJECT_KEY: decyphertek-io_DeCypherTek.ai
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@0303d6b62e310685c0e34d0b9cde218036885c4d # v5.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Pull all open findings for THIS branch from SonarCloud (paginated) and
+      # save both the raw JSON and a readable TXT report. Everything is
+      # committed back to the same branch the scan ran on.
+      - name: Pull report into appsec/
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p appsec /tmp/sonar
+          rm -f /tmp/sonar/page-*.json /tmp/sonar/hotspot-page-*.json
+
+          fetch_pages() {
+            # $1 = API path (issues/search or hotspots/search), $2 = file prefix
+            # Note: hotspots/search expects "projectKey", issues/search expects "componentKeys".
+            local API="$1" PREFIX="$2" P=1 MAX KEYPARAM
+            if [ "$API" = "issues/search" ]; then
+              KEYPARAM="componentKeys"
+            else
+              KEYPARAM="projectKey"
+            fi
+            while : ; do
+              curl -sf -u "$SONAR_TOKEN:" -G "$SONAR_HOST/api/$API" \
+                --data-urlencode "$KEYPARAM=$SONAR_PROJECT_KEY" \
+                --data-urlencode "ps=500" \
+                --data-urlencode "p=$P" \
+                --data-urlencode "branch=${GITHUB_REF_NAME}" \
+                $([ "$API" = "issues/search" ] && printf '%s' '--data-urlencode resolved=false') \
+                -o "/tmp/sonar/$PREFIX-page-$(printf '%04d' "$P").json"
+              MAX="$(python3 -c "import json;print(json.load(open('/tmp/sonar/$PREFIX-page-$(printf '%04d' "$P").json'))['paging']['total'])")"
+              [ "$((P * 500))" -ge "$MAX" ] && break
+              P=$((P + 1))
+            done
+          }
+
+          # /api/issues/search does NOT return Security Hotspots; fetch both.
+          fetch_pages issues/search page
+          fetch_pages hotspots/search hotspot
+          python3 - <<'EOF'
+          import glob, json, os
+
+          SEV_ORDER = {'BLOCKER': 0, 'CRITICAL': 1, 'MAJOR': 2, 'MINOR': 3, 'INFO': 4}
+
+          issues = []
+          for page in sorted(glob.glob('/tmp/sonar/page-*.json')):
+              issues.extend(json.load(open(page))['issues'])
+
+          # Security Hotspots come from a separate API and are not in issues/search.
+          hotspots = []
+          for page in sorted(glob.glob('/tmp/sonar/hotspot-page-*.json')):
+              hotspots.extend(json.load(open(page))['hotspots'])
+
+          combined = list(issues)
+          for h in hotspots:
+              combined.append({
+                  'severity': h.get('vulnerabilityProbability', 'UNKNOWN'),
+                  'type': 'SECURITY_HOTSPOT',
+                  'component': h.get('component', '?'),
+                  'line': h.get('line', '?'),
+                  'message': h.get('message', ''),
+                  'rule': h.get('rule', {}).get('key', '') if isinstance(h.get('rule'), dict) else h.get('rule', ''),
+                  'effort': h.get('securityCategory', ''),
+              })
+
+          combined.sort(key=lambda i: (SEV_ORDER.get(i.get('severity'), 9),
+                                       i.get('component', ''),
+                                       i.get('line') if isinstance(i.get('line'), int) else 0))
+
+          with open('appsec/sonarqube-issues.json', 'w') as f:
+              json.dump(combined, f, indent=2)
+
+          branch = os.environ['GITHUB_REF_NAME']
+          severities = {}
+          for issue in combined:
+              severities[issue.get('severity', 'UNKNOWN')] = severities.get(issue.get('severity', 'UNKNOWN'), 0) + 1
+
+          lines = [f'SonarQube Findings - branch: {branch} - {len(combined)} open issues ({len(issues)} issues, {len(hotspots)} security hotspots)',
+                   '=' * 78, '']
+          for sev in ('BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'):
+              if sev in severities:
+                  lines.append(f'{sev}: {severities[sev]}')
+          lines.append('')
+
+          for i, issue in enumerate(combined, 1):
+              component = issue.get('component', '?').replace('decyphertek-io_DeCypherTek.ai:', '')
+              lines.append(f"[{i}] {issue.get('severity', '?')} / {issue.get('type', '?')} - {component}:{issue.get('line', '?')}")
+              lines.append(f"    {issue.get('message', '')}")
+              lines.append(f"    rule: {issue.get('rule', '')}  effort: {issue.get('effort', '')}")
+              lines.append('')
+
+          with open('appsec/sonarqube-findings.txt', 'w') as f:
+              f.write('\n'.join(lines))
+          print(f'Rendered {len(combined)} findings ({len(issues)} issues, {len(hotspots)} hotspots) to appsec/sonarqube-findings.txt')
+          EOF
+          echo "Saved JSON + TXT report for branch ${GITHUB_REF_NAME}"
+
+      - name: Commit report to appsec/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add appsec/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore(appsec): update SonarQube report [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

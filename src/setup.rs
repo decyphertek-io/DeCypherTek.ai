@@ -141,7 +141,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         "read_files — read files in granted folders",
         "write_files — write files in granted folders",
         "run_command — execute shell commands (leashed asks before each; unleashed just runs)",
-        "mcp_servers — run MCP tool servers from @store (docker; hardened, internal-only)",
+        "mcp_servers — run MCP tool servers from /store (docker; hardened, internal-only)",
     ];
     let defaults = vec![
         cfg.tool_web_search,
@@ -162,23 +162,26 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     cfg.tool_mcp = chosen.contains(&4);
 
     // 5. Research profiles (optional) — a YAML site list saved into the
-    //    wiki's research/ folder; `@research <name>.yml <topic>` then
+    //    wiki's research/ folder; `/research <name>.yml <topic>` then
     //    searches exactly those sites instead of the general web.
     let mut new_profile: Option<(String, String, Vec<String>)> = None;
     let existing = crate::research::list(paths).unwrap_or_default();
     if !existing.is_empty() {
-        tui::info("RESEARCH", &format!("existing profiles: {}", existing.join(", ")));
+        tui::info(
+            "RESEARCH",
+            &format!("existing profiles: {}", existing.join(", ")),
+        );
     }
     if Confirm::with_theme(&theme)
         .with_prompt(
-            "Create a research profile now? (a YAML site list — @research <name>.yml \
+            "Create a research profile now? (a YAML site list — /research <name>.yml \
              searches only those sites)",
         )
         .default(false)
         .interact()?
     {
         let name: String = Input::with_theme(&theme)
-            .with_prompt("Profile name (used as @research <name>.yml)")
+            .with_prompt("Profile name (used as /research <name>.yml)")
             .with_initial_text("my-sources")
             .interact_text()?;
         let description: String = Input::with_theme(&theme)
@@ -187,7 +190,9 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
             .default("".into())
             .interact_text()?;
         let sites_raw: String = Input::with_theme(&theme)
-            .with_prompt("Sites to search, comma-separated (e.g. arxiv.org, https://huggingface.co)")
+            .with_prompt(
+                "Sites to search, comma-separated (e.g. arxiv.org, https://huggingface.co)",
+            )
             .interact_text()?;
         let sites: Vec<String> = sites_raw
             .split(',')
@@ -215,7 +220,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
             Ok(()) => tui::info(
                 "RESEARCH",
                 &format!(
-                    "profile saved: research/{name}.yml — run @research {name}.yml <topic> \
+                    "profile saved: research/{name}.yml — run /research {name}.yml <topic> \
                      to search only: {}",
                     sites.join(", ")
                 ),
@@ -237,7 +242,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     if folders.is_empty() {
         tui::info(
             "RAG",
-            "No folders given — use @ingest <folder> anytime to teach it new docs.",
+            "No folders given — use /ingest <folder> anytime to teach it new docs.",
         );
     }
     if grant_read {
@@ -304,7 +309,7 @@ fn choose_openrouter(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
         Ok(()) => tui::info("OPENROUTER", "Key verified — backend reachable."),
         Err(e) => tui::warn(
             "OPENROUTER",
-            &format!("Probe failed: {e}\nA wrong key can be fixed later with @setup."),
+            &format!("Probe failed: {e}\nA wrong key can be fixed later with /setup."),
         ),
     }
     Ok(())

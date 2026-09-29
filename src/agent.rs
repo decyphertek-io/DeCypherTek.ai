@@ -13,7 +13,8 @@ use std::time::Instant;
 /// The one personality: ADMINOTAUR — the sysadmin agent of the whole
 /// system. It operates DeCypherTek end to end (vault, memory, tools,
 /// containers) and builds subagents when a task needs them.
-pub const ADMINOTAUR: &str = "You are ADMINOTAUR — the sysadmin agent of DeCypherTek.ai, a technical \
+pub const ADMINOTAUR: &str =
+    "You are ADMINOTAUR — the sysadmin agent of DeCypherTek.ai, a technical \
 worker that makes the whole AI system operate. You administer everything the \
 system is made of: model backends, the encrypted vault, RAG memory, the wiki, \
 forensic chatlogs, folder grants and the tool leash, and the hardened MCP \
@@ -35,9 +36,9 @@ const CORE_RULES: &str = r#"You are a self-learning technical agent with real me
 6. BOUNDARIES. You have an explicit permission set. When a tool is DENIED, respect the refusal — say what you would have needed and continue if possible."#;
 
 const MODE_RULES: &[(&str, &str)] = &[
-    ("chat", "MODE: @chat — a conversation backed by full memory. Answer directly and completely; keep it concise but complete; ask at most one clarifying question only when truly blocked."),
-    ("code", "MODE: @code — you are hands-on. Read the relevant files first, make precise changes with write_file, and verify (run_command if permitted). Final answer MUST include: what changed and why, each file touched, and the diff or code snippet in a code block."),
-    ("research", "MODE: @research — investigate with memory, the wiki, and web_search (when permitted). Final answer MUST be a written report with clear sections: findings, analysis, and sources. Cite where each fact came from."),
+    ("chat", "MODE: /chat — a conversation backed by full memory. Answer directly and completely; keep it concise but complete; ask at most one clarifying question only when truly blocked."),
+    ("code", "MODE: /code — you are hands-on. Read the relevant files first, make precise changes with write_file, and verify (run_command if permitted). Final answer MUST include: what changed and why, each file touched, and the diff or code snippet in a code block."),
+    ("research", "MODE: /research — investigate with memory, the wiki, and web_search (when permitted). Final answer MUST be a written report with clear sections: findings, analysis, and sources. Cite where each fact came from."),
 ];
 
 pub struct RunResult {
@@ -213,10 +214,7 @@ pub fn run(
     }
 
     // Registered MCP containers die with the run (Drop in src/store.rs).
-    Ok(RunResult {
-        report,
-        warnings,
-    })
+    Ok(RunResult { report, warnings })
 }
 
 fn list_or(v: &[String]) -> String {
@@ -243,7 +241,9 @@ pub fn enabled_tools(cfg: &Config) -> String {
     if cfg.tool_mcp {
         let n = cfg.mcp_servers.iter().filter(|s| s.enabled).count();
         if n > 0 {
-            t.push(format!("mcp_servers({n}, hardened containers, internal-only)"));
+            t.push(format!(
+                "mcp_servers({n}, hardened containers, internal-only)"
+            ));
         }
     }
     t.join(", ")
