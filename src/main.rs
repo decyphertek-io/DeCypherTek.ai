@@ -11,6 +11,7 @@ mod models;
 mod paths;
 mod setup;
 mod shell;
+mod store;
 mod tools;
 mod tui;
 mod util;
@@ -110,13 +111,14 @@ fn cmd_setup() -> Result<()> {
     Ok(())
 }
 
-/// `decyphertek` — the normal flow.
+/// `decyphertek` — the normal flow: detect setup state, run the walkthrough
+/// automatically on a fresh install, and land in the @-shell either way.
 fn cmd_run() -> Result<()> {
     let paths = Paths::from_home().context("locate home directory")?;
     std::fs::create_dir_all(&paths.root)
         .with_context(|| format!("create {}", paths.root.display()))?;
 
-    // No agent at all → first-run wizard, then optionally straight in.
+    // No agent at all → first-run wizard, then straight into the shell.
     if !paths.vault_file.exists() {
         let stale = paths.staging.exists() && paths.config_file.exists();
         if stale {
@@ -134,23 +136,30 @@ fn cmd_run() -> Result<()> {
         let _ = std::fs::remove_dir_all(&paths.staging);
         setup::wizard(&paths, None)?;
         let password = setup::prompt_new_password()?;
-        let s = new_salt()?;
-        let k = vault::derive_key(&password, &s)?;
-        vault::seal(&paths, &k, &s)?;
+        let salt = new_salt()?;
+        let key = vault::derive_key(&password, &salt)?;
+        vault::seal(&paths, &key, &salt)?;
         tui::info(
             "VAULT",
-            "Sealed. From now on, launching decrypts with your password.",
+            "Sealed. From now on, launching decrypts with your password. \
+             Launching your @-shell now…",
         );
-        return Ok(());
+        shell_session(&paths, key, salt)
+    } else {
+        // Normal launch: password → unseal → shell → seal.
+        let (key, salt) = unlock(&paths)?;
+        shell_session(&paths, key, salt)
     }
+}
 
-    // Normal launch: password → unseal → shell → seal.
-    let (k, s) = unlock(&paths)?;
-    vault::unseal(&paths, &k)?;
+/// Unseal → shell → seal. Shared by fresh setups (auto-continue) and
+/// normal launches — one path, one lifecycle.
+fn shell_session(paths: &Paths, key: [u8; 32], salt: [u8; 16]) -> Result<()> {
+    vault::unseal(paths, &key)?;
 
-    let mut cfg = config::Config::load(&paths).context("load config from vault")?;
+    let mut cfg = config::Config::load(paths).context("load config from vault")?;
     let mut vectors = vector::Vectors::open(&paths.vector_db)?;
-    let rotated = chatlog::rotate_old_logs(&paths)?;
+    let rotated = chatlog::rotate_old_logs(paths)?;
     if rotated.0 > 0 {
         tui::info(
             "ARCHIVE",
@@ -158,12 +167,11 @@ fn cmd_run() -> Result<()> {
         );
     }
 
-    let mut key = k;
-    let salt = s;
-    shell::run(&mut cfg, &paths, &mut vectors, &mut key, salt)?;
+    let mut key = key;
+    shell::run(&mut cfg, paths, &mut vectors, &mut key, salt)?;
 
     // Seal the vault back up.
-    vault::seal(&paths, &key, &salt)?;
+    vault::seal(paths, &key, &salt)?;
     tui::info(
         "VAULT",
         "Sealed. Your agent sleeps encrypted at ~/.decyphertek.ai/vault.dct",

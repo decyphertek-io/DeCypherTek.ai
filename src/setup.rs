@@ -148,12 +148,14 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         "read_files — read files in granted folders",
         "write_files — write files in granted folders",
         "run_command — execute shell commands (leashed asks before each; unleashed just runs)",
+        "mcp_servers — run MCP tool servers from @store (docker; hardened, internal-only)",
     ];
     let defaults = vec![
         cfg.tool_web_search,
         cfg.tool_read_files,
         cfg.tool_write_files,
         cfg.tool_run_command,
+        cfg.tool_mcp,
     ];
     let chosen = MultiSelect::with_theme(&theme)
         .with_prompt("Grant tools (space to toggle)")
@@ -164,6 +166,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     cfg.tool_read_files = chosen.contains(&1);
     cfg.tool_write_files = chosen.contains(&2);
     cfg.tool_run_command = chosen.contains(&3);
+    cfg.tool_mcp = chosen.contains(&4);
 
     // 6. Persist: config, baseline wiki, RAG ingest.
     paths.ensure_staging()?;

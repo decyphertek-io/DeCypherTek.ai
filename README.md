@@ -18,17 +18,15 @@ curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/ins
 **Linux / macOS** — the exact same command. The installer:
 
 1. Detects your OS and CPU, downloads the **latest release binary** from GitHub Releases (verifying its SHA-256), and puts `decyphertek` on your `PATH`.
-2. Sets up **Docker** best-effort where Docker is genuinely possible (skips cleanly on Android — no root, no containers; the agent's tools run natively instead).
-3. Ends in the **TUI walkthrough wizard**: *Welcome to DeCypherTek.ai* → persona → brain → memory folders → the Leash → vault password. If no release is published yet, it tells you exactly which workflow to run.
+2. **On Termux/Android**: Docker can't run in Termux proper (no root), so the installer bootstraps a **proot Arch Linux** home — the binary and Docker are installed *inside* it, and `decyphertek` becomes a wrapper that launches you straight into the proot Arch terminal. dockerd starts automatically with `--iptables=false --bridge=none` (proot-safe); kernels that refuse it get a clean warning instead of a broken agent. Everywhere else: a **best-effort Docker setup** for `@store`'s MCP containers.
+3. **Launches the agent itself** — no separate setup step. It detects whether it has been configured (does the vault exist?); if not, the **TUI walkthrough wizard** runs right there (*Welcome to DeCypherTek.ai* → persona → brain → memory folders → the Leash → vault password), and you land in the `@`-shell afterwards. If no release is published yet, it tells you exactly which workflow to run.
 4. Re-run the same command any time to **update** — it always pulls `releases/latest`.
-
-Then start the agent:
 
 ```bash
 decyphertek
 ```
 
-It asks for the **vault password**, decrypts `~/.decyphertek.ai/vault.dct` into memory, and drops you at the `@`-shell prompt.
+It asks for the **vault password**, decrypts `~/.decyphertek.ai/vault.dct` into memory, and drops you at the `@`-shell prompt. `@setup` re-runs the walkthrough any time you want to change the configuration.
 
 ## The `@`-Shell
 
@@ -39,6 +37,7 @@ The terminal stays a normal terminal. Everything you type passes straight throug
 | `@chat <task>` | conversation backed by full memory |
 | `@code <task>` | hands-on: read, change, verify — ends with a diff report |
 | `@research <topic>` | memory + web research — ends in a written report with sources |
+| `@store` | the MCP store: fuzzy-search TUI over every MCP server on Docker (A-Z) — pull, register, update, disable, uninstall |
 | `@ingest <folder>` | chunk a folder's docs into RAG memory (grants read too) |
 | `@grants read <path>` / `@grants write <path>` | grant folder access |
 | `@leash leashed\|unleashed` | take the leash off (or put it back on) |
@@ -60,7 +59,10 @@ The terminal stays a normal terminal. Everything you type passes straight throug
 - **Encrypted vault** — everything lives at `~/.decyphertek.ai/vault.dct`: AES-256-GCM over a gzip'd tar of the whole data directory, key derived with Argon2id from your password (salted, fresh nonce per seal). Launch asks for the password, decrypts to a private staging dir, and seals atomically on exit — AES-GCM's authentication means a wrong password simply fails. Crash mid-session? The plaintext staging survives, and the next launch re-verifies and re-seals it.
 - **RAG vector store** — one SQLite file, chunked knowledge, deterministic 256-dim feature-hashing embeddings + cosine search; zero external services, zero model downloads, fully offline (a phone-sized brain has to run on the phone).
 - **Wiki Memory** — markdown knowledge base with a baseline shipped *inside the binary* (operative handbook, Termux playbook, vault internals, commands, personas, RAG design), plus everything the agent writes back.
-- **The leash (permissions)** — the agent reads/writes folders and tools only as granted: read folders, write folders, per-tool switches (web_search, read_files, write_files, run_command). Leashed, it can always touch its own data dir and nothing else; tool calls beyond grants come back `DENIED` — logged, respected, reported. Unleashed, folder scopes drop. Leashed + run_command enabled asks you to confirm each command interactively.
+- **MCP tool servers via `@store`** — a fuzzy-search TUI over *every MCP server found in Docker*, A-Z: an in-binary seed catalog (fetch, git, github, slack, time, …), a live Docker Hub query, and images already pulled on the machine. Pick one, pull, register — its tools merge into the agent's tool list as `mcp_<server>_<tool>`. Servers launch under a **security template that keeps them internal-only**: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, memory/pid caps, no published ports — the only channel a server gets is the stdio pipe the agent holds, so it can answer the agent and nothing else. Enable/disable/uninstall from the same TUI; the registry seals into the vault.
+- **Proot Arch Linux home on Termux** — Docker can't run in Termux proper, so the installer puts the binary *and* Docker inside a `proot-distro` Arch rootfs; the `decyphertek` wrapper launches you into the proot Arch terminal (a regular passthrough terminal — everything typed runs as typed, only `@` commands wake the agent). The vault stays bind-mounted from real Termux home so container reinstalls never touch your agent. dockerd auto-starts in proot-safe mode (`--iptables=false --bridge=none`) where the kernel allows it; devices that refuse it get a clear warning and `DOCKER_HOST`-to-LAN guidance.
+- **Zero-step setup** — the launcher detects whether the agent has been configured; on a fresh install the walkthrough runs immediately and drops you straight into the `@`-shell afterwards. `decyphertek setup` (or `@setup` inside) re-runs it whenever you want to change the configuration.
+- **The leash (permissions)** — the agent reads/writes folders and tools only as granted: read folders, write folders, per-tool switches (web_search, read_files, write_files, run_command, mcp_servers). Leashed, it can always touch its own data dir and nothing else; tool calls beyond grants come back `DENIED` — logged, respected, reported. Unleashed, folder scopes drop. Leashed + run_command enabled asks you to confirm each command interactively.
 - **Forensic chat logs** — every run leaves a JSONL case file: prompts, model replies, every tool call with arguments, results, final report. Case files are chunked into RAG memory (so past dialogues are recallable), and rotate into monthly `tar.gz` archives after 30 days.
 - **Keyless web research** — DuckDuckGo Instant Answers + Wikipedia search; findings land in the final report and get chunked into memory.
 - **Learning loop** — recall memory before a run; instruct the model docs-first (read before using an unfamiliar tool); distill learnings via the `remember` and `write_wiki` tools; every report itself is chunked as `report`-kind knowledge, so next run starts smarter.
@@ -157,19 +159,24 @@ flowchart TB
         Shell["run_command<br/>(gated + confirmed when leashed)"]
         Memory["memory_search · remember"]
         WikiT["read_wiki · write_wiki"]
+        Mcps["@store MCP servers in Docker<br/>--network=none · stdio-only"]
     end
 
     subgraph Interface["@-shell"]
         Pass["passthrough<br/>commands run as typed"]
         AtCmds["@chat @code @research"]
+        Store["@store — MCP store<br/>pull Docker servers A-Z"]
         Tui["TUI reports"]
         Wizard["setup wizard<br/>persona → brain → folders → leash → password"]
     end
 
     You([You]) -->|@ command| AtCmds
     You -->|anything else| Pass
+    You -->|browse, pull, register| Store
     You -->|setup / launch| Wizard
     Wizard -->|password| Seal
+    Store -->|registered servers| Mcps
+    Mcps -->|tools as mcp_server_tool| Orchestrator
     AtCmds -->|task + recalled memory| Orchestrator
     Orchestrator -->|one final report| Tui
     Orchestrator -->|thoughts, tool calls| Logs
@@ -187,7 +194,7 @@ flowchart TB
 
 1. **Recall** — the task text searches the RAG store; top chunks become context.
 2. **Frame** — persona + mode rules + leash summary + recalled memory become the system prompt.
-3. **Loop** (max 12 iterations) — the model replies with tool calls; the orchestrator executes each through the leash, appending results; when the model produces a final answer, the loop ends.
+3. **Loop** (max 12 iterations) — the model replies with tool calls; the orchestrator executes each through the leash, appending results; when the model produces a final answer, the loop ends. Registered @store MCP servers spawn as hardened containers at run start (network=none, stdio-only) and die with the run.
 4. **Learn** — the report and full case file are chunked into memory (`report` / `chatlog` kinds); the agent may have stored distillations via `remember` during the run.
 5. **Report** — one TUI panel + a stats line; the shell returns.
 
@@ -205,7 +212,7 @@ Everything cross-compiles static; CI is `cargo test` on Linux + macOS with clipp
 
 ```bash
 cargo build --release        # build the binary
-cargo test                   # 18 unit tests (vault, embeddings, leash, wiki, chunking)
+cargo test                   # 25 unit tests (vault, embeddings, leash, wiki, chunking, MCP store)
 cargo clippy -- -D warnings  # zero-warning policy
 ```
 
@@ -235,7 +242,7 @@ Phase 1 shipped in this build:
 
 Next phases:
 
-- [ ] MCP tool servers — Docker containers on desktop/server, local processes under Termux (the leash gates these the same way)
+- [x] MCP tool servers — `@store` TUI: search Docker (A-Z, hub live search + seed catalog), pull, register; hardened containers (`--network=none`, `--cap-drop=ALL`) that talk only to the agent over stdio; registry sealed in the vault, gated by the leash's mcp_servers switch
 - [ ] Neural embeddings via Ollama `nomic-embed-text` (swap the hashing embedder, same schema)
 - [ ] MCP sync servers — GitHub MCP for Wiki Memory-as-git-repo, rclone MCP for Proton Drive backup of the whole data dir
 - [ ] Custom agents via user-written `AGENT.md` on top of the built-in personas

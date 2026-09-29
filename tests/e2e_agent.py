@@ -74,6 +74,10 @@ drain(2.0)
 send("e2e-password-123\r")
 drain(3.0)
 check("Sealed" in text(), "sealed after wizard")
+drain(1.5)
+check("UNSEALED" in text(), "first session auto-continues into the @-shell")
+send("exit\r")                  # leave cleanly; then re-launch for phase 2
+drain(2.5)
 p.wait(timeout=10)
 check(os.path.exists(VAULT), "vault.dct created")
 
