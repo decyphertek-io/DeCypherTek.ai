@@ -2,10 +2,10 @@
 #
 # Runs on every push to the `dev-adminotaur` branch: unit tests (fmt +
 # clippy + cargo test) plus the same cross-compilation matrix as the
-# Release workflow, then publishes the packaged assets as a GitHub
+# Prod-Build workflow, then publishes the packaged assets as a GitHub
 # PRERELEASE tagged `v<version>-dev.<short-sha>`. Prereleases are
 # excluded from `releases/latest`, so the install script keeps serving
-# the stable Release output — dev builds only reach devices that
+# the stable Prod-Build output — dev builds only reach devices that
 # download them explicitly from the prerelease page.
 
 name: dev-adminotaur
