@@ -72,10 +72,8 @@ check("Vault password" in out, "fresh vault password prompt")
 send("e2e-password-123\r")
 drain(2.0)
 send("e2e-password-123\r")
-drain(3.0)
-check("Sealed" in text(), "sealed after wizard")
-drain(1.5)
-check("UNSEALED" in text(), "first session auto-continues into the @-shell")
+drain(4.0)
+check("decyphertek.ai:~$" in text(), "first session auto-continues into the classic prompt")
 send("exit\r")                  # leave cleanly; then re-launch for phase 2
 drain(2.5)
 p.wait(timeout=10)
@@ -89,14 +87,15 @@ check("Vault password" in out, "unlock prompt")
 send("e2e-password-123\r")
 drain(2.0)
 out = text()
-check("UNSEALED" in out, "vault unsealed")
+check("decyphertek.ai:~$" in out, "vault unsealed — classic prompt")
 
 print("-- @chat: remember tool call --")
+buf = b""
 send("@chat remember the access code is CAMEL-42-ALPHA\r")
 drain(8.0)
 out = text()
+check("Processing Request............" in out, "processing line printed before the report")
 check("CAMEL-42-ALPHA is now in long-term memory" in out, "final report after remember tool call")
-check("tool calls: 1" in out, "run stats show one tool call")
 
 print("-- @chat: memory recall tool call --")
 buf = b""
@@ -124,7 +123,7 @@ check(mchunk is not None and int(mchunk.group(1)) > 0, "RAG chunks recorded in v
 
 send("exit\r")
 drain(2.5)
-check("Sealed" in text(), "sealed on exit")
+check("sealed" in text().lower(), "sealed on exit")
 p.wait(timeout=10)
 check(not os.path.exists(STAGING), "staging wiped")
 

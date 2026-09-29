@@ -25,7 +25,7 @@ curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/ins
 decyphertek.ai
 ```
 
-It asks for the **vault password**, decrypts `~/.decyphertek.ai/vault.dct` into memory, and drops you at the `@`-shell prompt. `@setup` re-runs the walkthrough any time you want to change the configuration.
+It asks for the **vault password**, decrypts `~/.decyphertek.ai/vault.dct` into memory, and drops you at a classic terminal prompt — `decyphertek.ai:~$` — with nothing else printed. `@setup` re-runs the walkthrough any time you want to change the configuration.
 
 ## Uninstall
 
@@ -45,7 +45,7 @@ curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uni
 
 ## The `@`-Shell
 
-The terminal stays a normal terminal. Everything you type passes straight through to your shell and runs exactly as typed — only `@` commands wake the agent:
+The terminal stays a normal terminal, down to its prompt: `decyphertek.ai:~$` — host, path (`~`, `~/…`, absolute), dollar, exactly what a plain Linux session looks like. Everything you type passes straight through to your shell and runs exactly as typed (including a real, persistent `cd` — the path in the prompt follows you), and only `@` commands wake the agent:
 
 | Command | What it does |
 | --- | --- |
@@ -64,8 +64,9 @@ The terminal stays a normal terminal. Everything you type passes straight throug
 | `@password` | change the vault password |
 | `@help` | all commands |
 | `exit` (or Ctrl-D) | seal the vault and quit |
+| `cd [path]` | change directory (`~`, `..`, `-`; the prompt path follows) |
 
-**You never watch it think.** While a run is live, reasoning, tool calls, retries and dead ends stream only into the forensic chat log; the screen stays quiet until the final TUI report renders: what was asked, what happened, which tools ran, what changed — then the shell prompt returns.
+**You never watch it think.** While a run is live, the screen shows one line — `Processing Request............` — and nothing else: reasoning, tool calls, retries and dead ends stream only into the forensic chat log. When the run finishes, the final TUI report renders: what was asked, what happened, which tools ran, what changed — then the shell prompt returns.
 
 ## What's Built (v0.1.0)
 

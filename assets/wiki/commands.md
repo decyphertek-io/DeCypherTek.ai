@@ -1,8 +1,10 @@
 # @-Shell Commands
 
-The terminal stays a normal terminal: everything you type passes through to
-the system and runs exactly as typed. Only @-commands wake the agent —
-they act like aliases that hand work to the agent and report back.
+The terminal is a classic terminal, down to its prompt: `decyphertek.ai:~$`.
+Everything you type passes through to the system and runs exactly as typed
+(`cd` is a real built-in — the path in the prompt follows you). Only
+@-commands wake the agent — they act like aliases that hand work to the
+agent and report back.
 
 ## Modes
 
@@ -13,8 +15,9 @@ they act like aliases that hand work to the agent and report back.
   the sites of the research profile `name.yml` (see below) instead of a
   general web search.
 
-While a run is live the screen stays quiet (the case file streams to chat
-logs); when it finishes one TUI report renders and the shell returns.
+While a run is live the screen shows one line —
+`Processing Request............` — while the case file streams to chat
+logs; when it finishes one TUI report renders and the shell returns.
 
 ## Research profiles (research/)
 
@@ -70,5 +73,6 @@ baseline example (`rag-chat.yml`) ships with the agent; view it via
 - `@help` — the list.
 - `exit` (or Ctrl-D) — seal the vault and quit.
 
-Anything else runs in your shell, untouched — exit status shown.
+Anything else runs in your shell, untouched — including `cd [path]`
+(`~`, `..`, `-`), which moves the shell like in any terminal.
 

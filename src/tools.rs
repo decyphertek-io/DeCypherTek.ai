@@ -805,6 +805,7 @@ mod tests {
             vectors,
             http: ureq::AgentBuilder::new().build(),
             mcp: Vec::new(),
+            research_sites: Vec::new(),
         }
     }
 

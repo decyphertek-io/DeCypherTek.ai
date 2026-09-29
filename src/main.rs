@@ -140,11 +140,6 @@ fn cmd_run() -> Result<()> {
         let salt = new_salt()?;
         let key = vault::derive_key(&password, &salt)?;
         vault::seal(&paths, &key, &salt)?;
-        tui::info(
-            "VAULT",
-            "Sealed. From now on, launching decrypts with your password. \
-             Launching your @-shell now…",
-        );
         shell_session(&paths, key, salt)
     } else {
         // Normal launch: password → unseal → shell → seal.
@@ -162,21 +157,22 @@ fn shell_session(paths: &Paths, key: [u8; 32], salt: [u8; 16]) -> Result<()> {
     let mut vectors = vector::Vectors::open(&paths.vector_db)?;
     let rotated = chatlog::rotate_old_logs(paths)?;
     if rotated.0 > 0 {
-        tui::info(
-            "ARCHIVE",
-            &format!("{} old chat logs rotated into {}", rotated.0, rotated.1),
+        println!(
+            "{}",
+            console::style(format!(
+                "{} old chat logs rotated into {}",
+                rotated.0, rotated.1
+            ))
+            .dim()
         );
     }
 
     let mut key = key;
     shell::run(&mut cfg, paths, &mut vectors, &mut key, salt)?;
 
-    // Seal the vault back up.
+    // Seal the vault back up — quiet, like logging out of any terminal.
     vault::seal(paths, &key, &salt)?;
-    tui::info(
-        "VAULT",
-        "Sealed. Your agent sleeps encrypted at ~/.decyphertek.ai/vault.dct",
-    );
+    println!("{}", console::style("Vault sealed.").dim());
     Ok(())
 }
 

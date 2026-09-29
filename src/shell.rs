@@ -1,13 +1,16 @@
-//! The `@`-shell: a normal terminal that runs everything you type as typed,
-//! and only wakes the agent for @-commands. The run stays silent; the TUI
-//! shows one final report, then hands the prompt back.
+//! The `@`-shell: a classic terminal — the prompt looks like
+//! `decyphertek.ai:~$` — where everything you type runs exactly as typed
+//! (with a persistent `cd`), and only @-commands wake the agent. A run
+//! prints just `Processing Request............`, then one final TUI
+//! report, and hands the prompt back.
 
 use crate::config::Config;
 use crate::paths::Paths;
 use crate::tui;
 use crate::vector::Vectors;
 use anyhow::{Context, Result};
-use std::io::{BufRead, Write};
+use std::io::BufRead;
+use std::path::PathBuf;
 
 pub const HELP: &str = "\
 @-shell — commands run exactly as typed; @-commands wake the agent.
@@ -33,6 +36,7 @@ pub const HELP: &str = "\
   @password           change the vault password
   @help               this help
   exit                seal the vault and quit
+  cd [path]           change directory (~, .., - ; the prompt follows)
   anything else       runs in your shell, untouched";
 
 pub fn run(
@@ -43,20 +47,10 @@ pub fn run(
     salt: [u8; 16],
 ) -> Result<()> {
     let stdin = std::io::stdin();
-    tui::banner(env!("CARGO_PKG_VERSION"));
-    tui::info(
-        "VAULT UNSEALED",
-        "Memory is live. Type @help for agent commands — anything else runs \
-         in your shell exactly as typed. `exit` seals the vault on the way out.",
-    );
+    let mut oldpwd: Option<PathBuf> = None;
 
     loop {
-        let status = format!(
-            "adminotaur | {} | {}",
-            cfg.backend_summary(),
-            cfg.leash
-        );
-        tui::draw_prompt(&status);
+        tui::draw_prompt(&prompt_cwd());
         let mut line = String::new();
         let n = match stdin.lock().read_line(&mut line) {
             Ok(n) => n,
@@ -70,7 +64,7 @@ pub fn run(
             continue;
         }
 
-        let result = handle(cfg, paths, vectors, key, &salt, cmd);
+        let result = handle(cfg, paths, vectors, key, &salt, cmd, &mut oldpwd);
         if let Err(e) = result {
             tui::error(&e.to_string());
         }
@@ -88,6 +82,7 @@ fn handle(
     key: &mut [u8; 32],
     salt: &[u8; 16],
     cmd: &str,
+    oldpwd: &mut Option<PathBuf>,
 ) -> Result<()> {
     let (head, rest) = match cmd.split_once(' ') {
         Some((h, r)) => (h, r.trim()),
@@ -319,18 +314,111 @@ fn handle(
             change_password(paths, key, salt)?;
             Ok(())
         }
-        // Anything else: passthrough — run in the user's shell, untouched.
-        _ => {
-            use std::process::Command;
-            let status = Command::new("sh").arg("-c").arg(cmd).status();
-            match status {
-                Ok(s) if !s.success() => {
-                    println!("{}", console::style(format!("(exit status: {s})")).dim());
+        // `cd`: a built-in — each passthrough runs `sh -c` from this
+        // process's cwd, so `cd` moves *this* shell and the prompt
+        // (and every later command) follows, like a real terminal.
+        // Plain paths only: anything with shell syntax (&&, ;, pipes…)
+        // falls through to the real shell and runs untouched.
+        "cd" => {
+            let mut target = rest;
+            for q in ['"', '\''] {
+                if target.len() >= 2 && target.starts_with(q) && target.ends_with(q) {
+                    target = &target[1..target.len() - 1];
+                    break;
                 }
-                Ok(_) => {}
-                Err(e) => tui::error(&format!("could not spawn shell: {e}")),
+            }
+            if target.chars().any(|c| ";&|<>`$".contains(c)) {
+                passthrough(cmd);
+            } else {
+                builtin_cd(target, oldpwd);
             }
             Ok(())
+        }
+        // Anything else: passthrough — run in the user's shell, untouched.
+        _ => {
+            passthrough(cmd);
+            Ok(())
+        }
+    }
+}
+
+/// Run a command in the user's shell exactly as typed.
+fn passthrough(cmd: &str) {
+    use std::process::Command;
+    match Command::new("sh").arg("-c").arg(cmd).status() {
+        Ok(_) => {}
+        Err(e) => tui::error(&format!("could not spawn shell: {e}")),
+    }
+}
+
+/// The prompt's path component: like `\w` — `~` at home, `~/…` under it,
+/// the absolute path anywhere else.
+fn prompt_cwd() -> String {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let path = cwd.to_string_lossy().to_string();
+    if let Ok(home) = crate::paths::home_dir() {
+        let home = home.to_string_lossy().to_string();
+        if let Some(rest) = path.strip_prefix(&home) {
+            if rest.is_empty() {
+                return "~".into();
+            }
+            if rest.starts_with('/') {
+                return format!("~{rest}");
+            }
+        }
+    }
+    path
+}
+
+/// Expand a leading `~` / `~/…` to the home directory.
+fn expand_tilde(p: &str) -> PathBuf {
+    if let Some(rest) = p.strip_prefix('~') {
+        if let Ok(home) = crate::paths::home_dir() {
+            if rest.is_empty() {
+                return home;
+            }
+            if rest.starts_with('/') {
+                return home.join(&rest[1..]);
+            }
+        }
+    }
+    PathBuf::from(p)
+}
+
+/// `cd` with bash semantics: bare `cd` → home, `cd -` → OLDPWD (printing
+/// where it went), `cd <path>` with `~` expansion. Errors read like bash's.
+fn builtin_cd(rest: &str, oldpwd: &mut Option<PathBuf>) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let target = if rest.is_empty() || rest == "~" {
+        crate::paths::home_dir().ok()
+    } else if rest == "-" {
+        match oldpwd {
+            Some(prev) => {
+                println!("{}", prev.display());
+                Some(prev.clone())
+            }
+            None => {
+                println!("cd: OLDPWD not set");
+                None
+            }
+        }
+    } else {
+        Some(expand_tilde(rest))
+    };
+    let Some(target) = target else {
+        return;
+    };
+    match std::env::set_current_dir(&target) {
+        Ok(()) => {
+            *oldpwd = Some(cwd);
+        }
+        Err(e) => {
+            let reason = match e.kind() {
+                std::io::ErrorKind::NotFound => "No such file or directory".to_string(),
+                std::io::ErrorKind::PermissionDenied => "Permission denied".to_string(),
+                _ => e.to_string(),
+            };
+            println!("cd: {rest}: {reason}");
         }
     }
 }
@@ -365,23 +453,11 @@ fn run_agent(
     task: &str,
     research_sites: &[String],
 ) -> Result<()> {
-    let spinner_note = console::style(format!(
-        "@{mode} running — the screen stays quiet until the report…"
-    ))
-    .dim();
-    println!("{spinner_note}");
-    let _ = std::io::stdout().flush();
+    println!("Processing Request............");
 
     match crate::agent::run(cfg, paths, vectors, mode, task, research_sites) {
         Ok(result) => {
             tui::report(&format!("@{mode} — report"), &result.report);
-            tui::report_stat(
-                &format!("@{mode} — stats"),
-                &format!(
-                    "run: {}s | tool calls: {} | iterations: {}",
-                    result.elapsed_secs, result.tool_calls, result.iterations
-                ),
-            );
             for w in &result.warnings {
                 tui::warn("RUN", w);
             }
