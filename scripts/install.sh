@@ -156,8 +156,9 @@ fi
 #                  phone and PC gets by default.
 #   experimental — the dev prerelease the 'dev-adminotaur' testing
 #                  branch publishes (its single rolling
-#                  v<version>-dev tag — every push overwrites the
-#                  previous build in place).
+#                  v<version>-dev-adminotaur tag — every push
+#                  overwrites the previous build in place, and it can
+#                  never be confused with the usaginotsuki channel).
 # Non-interactive runs default to production. Pre-pick a side with the
 # first argument (curl -fsSL ... | bash -s -- experimental) or the
 # DCT_CHANNEL env var.
@@ -430,15 +431,20 @@ ok "Debian: podman podman-docker podman-compose curl gnupg ca-certificates ready
 # 3) LAST — the chosen DeCyphertek.ai release, downloaded and installed
 #    here inside the Linux container (not in Termux). CHANNEL arrives
 #    from the outer installer: production -> releases/latest,
-#    experimental -> the rolling v*-dev prerelease from the testing
-#    branch.
+#    experimental -> the dev-adminotaur prerelease (the channel's
+#    single rolling v*-dev-adminotaur release).
 GH_API="https://api.github.com/repos/$REPO/releases"
 if [[ "$CHANNEL" == experimental ]]; then
   say "Debian: finding the newest experimental dev release…"
   if ! RELIST="$(curl -sSLf "${AUTH[@]}" "$GH_API?per_page=50" 2>/dev/null)"; then
     die "could not list releases — check the network and re-run the installer."
   fi
-  TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev[0-9a-f.]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+  # dev-adminotaur's branch-labeled tag (never usaginotsuki's);
+  # interim/legacy -dev / -dev.<sha> tags kept as a fallback.
+  TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev-adminotaur"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+  if [[ -z "$TAG" ]]; then
+    TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev[0-9a-f.]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+  fi
   if [[ -z "$TAG" ]]; then
     die "no experimental release found yet — push to the 'dev-adminotaur' branch first, or install the Production channel."
   fi
@@ -637,10 +643,10 @@ setup_container_runtime() {
 
 # ------------------------------------------------------------- release fetch
 # Desktop path: fetch + verify + stage the chosen channel's release —
-# production -> releases/latest, experimental -> the rolling v*-dev
-# prerelease published from the testing branch. On Termux this whole
-# step happens INSIDE the Debian container instead (see the bootstrap
-# above) — nothing is downloaded into Termux.
+# production -> releases/latest, experimental -> the branch-labeled
+# v*-dev-adminotaur prerelease published from the testing branch. On
+# Termux this whole step happens INSIDE the Debian container instead
+# (see the bootstrap above) — nothing is downloaded into Termux.
 fetch_release() {
   GH_API="https://api.github.com/repos/$REPO/releases"
   AUTH=()
@@ -652,7 +658,12 @@ fetch_release() {
     if ! RELIST="$(curl -sSLf "${AUTH[@]}" "$GH_API?per_page=50" 2>/dev/null)"; then
       die "could not list releases — check the network and re-run the installer."
     fi
-    TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev[0-9a-f.]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+    # dev-adminotaur's branch-labeled tag (never usaginotsuki's);
+    # interim/legacy -dev / -dev.<sha> tags kept as a fallback.
+    TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev-adminotaur"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+    if [[ -z "$TAG" ]]; then
+      TAG="$(printf '%s' "$RELIST" | grep -o '"tag_name": *"[^"]*-dev[0-9a-f.]*"' | head -1 | sed 's/.*"tag_name": *"//; s/"$//')"
+    fi
     if [[ -z "$TAG" ]]; then
       die "no experimental release found — push to the 'dev-adminotaur' branch first, or install the Production channel."
     fi

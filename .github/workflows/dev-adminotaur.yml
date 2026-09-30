@@ -3,11 +3,14 @@
 # Runs on every push to the `dev-adminotaur` branch: unit tests (fmt +
 # clippy + cargo test) plus the same cross-compilation matrix as the
 # Prod-Build workflow, then publishes the packaged assets as the
-# channel's ONE rolling PRERELEASE, tagged `v<version>-dev`. Every
-# push OVERWRITES the previous dev build in place (assets + notes)
-# and sweeps away this channel's older releases (previous versions'
-# rolling tags and the legacy `v<version>-dev.<sha>` pile), so the
-# releases page never grows past one prerelease per dev channel —
+# channel's ONE rolling PRERELEASE, tagged `v<version>-dev-adminotaur`
+# — the branch name sits in the version number, the same way the
+# usaginotsuki channel tags `v<version>-dev-usaginotsuki`, so the two
+# channels can never overwrite each other, only their own release.
+# Every push OVERWRITES the previous dev build in place (assets +
+# notes) and sweeps away this channel's older releases (previous
+# versions' rolling tags and the legacy `v<version>-dev.<sha>` pile),
+# so the releases page never grows past one prerelease per dev channel —
 # each channel only ever writes over its own tags. Prereleases are
 # excluded from `releases/latest`, so the install script keeps serving
 # the stable Prod-Build output — dev builds only reach devices that
@@ -150,10 +153,11 @@ jobs:
         id: tag
         run: |
           VER="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
-          # One rolling tag per channel: a rebuild writes over this
-          # release instead of piling up a new one per commit.
-          echo "tag=v${VER}-dev" >> "$GITHUB_OUTPUT"
-          echo "short=$(printf '%s' "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          # One rolling tag per channel, named after the branch: a
+          # rebuild writes over this release instead of piling up a
+          # new one per commit — and can never collide with (or
+          # overwrite) the usaginotsuki channel's tag.
+          echo "tag=v${VER}-dev-adminotaur" >> "$GITHUB_OUTPUT"
 
       - name: Gather artifacts
         uses: actions/download-artifact@v4
@@ -174,7 +178,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
-          SHORT: ${{ steps.tag.outputs.short }}
           HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           SUMMARY="$(printf '%s' "$HEAD_MSG" | head -n1)"
@@ -185,7 +188,7 @@ jobs:
 
           Commit: ${GITHUB_SHA}
           ${SUMMARY}"
-          TITLE="DeCypherTek.ai $TAG (dev) - $SHORT"
+          TITLE="DeCypherTek.ai $TAG"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Rolling prerelease $TAG exists - overwriting notes and assets."
             gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
@@ -198,15 +201,16 @@ jobs:
           fi
 
           # One channel = one prerelease: sweep this channel's older
-          # releases - previous versions' rolling tags (v*-dev) and the
-          # legacy per-commit v*-dev.<sha> pile. Only tags that end in
-          # -dev are adminotaur's, so the usagi channel and the stable
-          # release are never touched from here.
+          # releases — previous versions' rolling tags (v*-dev-adminotaur
+          # and the interim v*-dev), plus the legacy per-commit
+          # v*-dev.<sha> pile. Only this channel's tag shapes are
+          # matched — v*-dev-usaginotsuki can never match them, so the
+          # usagi channel and the stable release are never touched here.
           gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name' \
             | while read -r OLD; do
                 case "$OLD" in
                   "$TAG")    ;;  # the rolling release just written
-                  *-dev|*-dev.[0-9a-f]*)
+                  *-dev-adminotaur|*-dev|*-dev.[0-9a-f]*)
                     echo "Removing superseded channel prerelease: $OLD"
                     gh release delete "$OLD" --yes --cleanup-tag \
                       || echo "could not delete $OLD (continuing)" ;;
