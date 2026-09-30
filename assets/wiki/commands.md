@@ -63,7 +63,7 @@ baseline example (`rag-chat.yml`) ships with the agent; view it via
 
 - `@ingest <folder>` — chunk a folder's docs into RAG memory, grants read.
 - `@grants read <path>` / `@grants write <path>` — grant folder access.
-- `@leash leashed|unleashed` — enforce or drop folder scopes.
+- `@leash leashed|unleashed` — enforce or drop folder scopes; unleashed turns every ability on.
 - `@wiki list` / `@wiki read <name>` — browse memory pages (also
   `research/<profile>.yml` and `info/<uploaded-doc>` entries).
 - `@status` — brain, leash, grants, MCP servers, RAG size, wiki size.

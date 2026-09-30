@@ -757,7 +757,7 @@ pub fn spawn_pool(cfg: &Config) -> (Vec<McpChild>, Vec<String>) {
     if active.is_empty() {
         return (pool, warnings);
     }
-    if !cfg.tool_mcp {
+    if !cfg.tool_mcp && !cfg.is_unleashed() {
         warnings.push("MCPS: tool_mcp is off (/setup) — registered servers skipped.".into());
         return (pool, warnings);
     }
@@ -911,6 +911,35 @@ mod tests {
         assert!(hits.iter().any(|e| e.name == "github"));
         assert!(!hits.iter().any(|e| e.name == "sqlite"));
         assert!(cat.iter().all(|e| matches(e, "")));
+    }
+
+    #[test]
+    fn spawn_pool_gate_follows_the_leash() {
+        use crate::config::{Config, McpServer};
+        let cfg = Config {
+            tool_mcp: false,
+            mcp_servers: vec![McpServer {
+                name: "x".into(),
+                image: "img".into(),
+                enabled: true,
+                added: String::new(),
+            }],
+            ..Config::default()
+        };
+        let (_, w) = spawn_pool(&cfg);
+        assert!(
+            w.iter().any(|s| s.contains("tool_mcp is off")),
+            "leashed gate off must warn: {w:?}"
+        );
+        let cfg = Config {
+            leash: "unleashed".into(),
+            ..cfg.clone()
+        };
+        let (_, w) = spawn_pool(&cfg);
+        assert!(
+            !w.iter().any(|s| s.contains("tool_mcp is off")),
+            "unleashed turns the gate on: {w:?}"
+        );
     }
 
     #[test]

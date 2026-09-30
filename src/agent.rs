@@ -84,14 +84,24 @@ pub fn run(
         .map(|(_, r)| *r)
         .unwrap_or(MODE_RULES[0].1);
 
-    let perm_lines = format!(
-        "Your current permissions (the leash): mode={leash}; readable folders: {reads}; \
-         writable folders: {writes} + your own data directory; tools enabled: {tools}.",
-        leash = cfg.leash,
-        reads = list_or(&cfg.read_paths),
-        writes = list_or(&cfg.write_paths),
-        tools = enabled_tools(cfg),
-    );
+    // The agent's self-knowledge must match the enforced truth exactly,
+    // or honesty rules make it refuse abilities it really has.
+    let perm_lines = if cfg.is_unleashed() {
+        "Your current permissions (the leash): UNLEASHED — every ability is on \
+         and all folder scopes are off: you may read and write anywhere your \
+         user can, run any shell command (no per-command confirmation), \
+         search the web, and use registered MCP tool servers. Nothing else \
+         restricts you; the tool switches resume only when re-leashed."
+            .to_string()
+    } else {
+        format!(
+            "Your current permissions (the leash): mode=leashed; readable folders: {reads}; \
+             writable folders: {writes} + your own data directory; tools enabled: {tools}.",
+            reads = list_or(&cfg.read_paths),
+            writes = list_or(&cfg.write_paths),
+            tools = enabled_tools(cfg),
+        )
+    };
 
     let system = if research_sites.is_empty() {
         format!("{ADMINOTAUR}\n\n{CORE_RULES}\n\n{mode_rules}\n\n{perm_lines}\n\n",)
@@ -224,21 +234,24 @@ fn list_or(v: &[String]) -> String {
     }
 }
 
+/// The ability list for the leash summary and @status — under
+/// unleashed every ability is on, whatever the switches say.
 pub fn enabled_tools(cfg: &Config) -> String {
     let mut t: Vec<String> = vec!["memory".into(), "wiki".into()];
-    if cfg.tool_web_search {
+    let un = cfg.is_unleashed();
+    if cfg.tool_web_search || un {
         t.push("web_search".into());
     }
-    if cfg.tool_read_files {
+    if cfg.tool_read_files || un {
         t.push("read_files".into());
     }
-    if cfg.tool_write_files {
+    if cfg.tool_write_files || un {
         t.push("write_files".into());
     }
-    if cfg.tool_run_command {
+    if cfg.tool_run_command || un {
         t.push("run_command".into());
     }
-    if cfg.tool_mcp {
+    if cfg.tool_mcp || un {
         let n = cfg.mcp_servers.iter().filter(|s| s.enabled).count();
         if n > 0 {
             t.push(format!(
@@ -266,5 +279,25 @@ mod tests {
         assert!(ADMINOTAUR.contains("ADMINOTAUR"));
         assert!(ADMINOTAUR.contains("subagents"));
         assert!(ADMINOTAUR.contains("systems administrator"));
+    }
+
+    #[test]
+    fn tools_list_follows_the_leash() {
+        let cfg = Config::default();
+        let leashed = enabled_tools(&cfg);
+        assert!(leashed.contains("web_search"), "{leashed}");
+        assert!(
+            !leashed.contains("run_command"),
+            "default run_command is off: {leashed}"
+        );
+
+        let cfg = Config {
+            leash: "unleashed".into(),
+            ..Config::default()
+        };
+        let off = enabled_tools(&cfg);
+        for want in ["web_search", "read_files", "write_files", "run_command"] {
+            assert!(off.contains(want), "unleashed lists {want}: {off}");
+        }
     }
 }
