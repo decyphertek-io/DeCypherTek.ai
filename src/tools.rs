@@ -4,9 +4,10 @@
 //! readable/writable; other folders, the shell, the web, and command
 //! execution are all gated by config (`read_paths`, `write_paths`, and
 //! the per-tool switches). Leashed = defaults deny everything but its own
-//! data dir; Unleashed = the leash comes off (folder scopes are dropped,
-//! though tool switches still apply). Denied calls return "DENIED" as the
-//! tool result — the run continues, the refusal is logged and reported.
+//! data dir; Unleashed = the leash comes off: folder scopes are dropped
+//! AND every ability turns on (the switches resume only when re-leashed).
+//! Denied calls return "DENIED" as the tool result — the run continues,
+//! the refusal is logged and reported.
 
 use crate::chatlog::ChatLog;
 use crate::config::Config;
@@ -40,26 +41,26 @@ pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
         tool_spec("read_wiki", "Read one page of the agent's memory wiki.", json_obj(&[("name", "string")])),
         tool_spec("write_wiki", "Write or update a page in the agent's memory wiki, e.g. memory-<topic>. Content is markdown.", json_obj(&[("name", "string"), ("content", "string")])),
     ];
-    if cfg.tool_read_files {
+    if cfg.tool_read_files || cfg.is_unleashed() {
         out.push(tool_spec(
             "list_dir",
-            "List files in a directory (requires granted read access).",
+            "List files in a directory.",
             json_obj(&[("path", "string")]),
         ));
         out.push(tool_spec(
             "read_file",
-            "Read a text file (requires granted read access).",
+            "Read a text file.",
             json_obj(&[("path", "string")]),
         ));
     }
-    if cfg.tool_write_files {
+    if cfg.tool_write_files || cfg.is_unleashed() {
         out.push(tool_spec(
             "write_file",
-            "Write a text file (only inside granted write folders).",
+            "Write a text file.",
             json_obj(&[("path", "string"), ("content", "string")]),
         ));
     }
-    if cfg.tool_web_search {
+    if cfg.tool_web_search || cfg.is_unleashed() {
         out.push(tool_spec(
             "web_search",
             "Search the web (DuckDuckGo results + Wikipedia + Hacker News) for research. Returns titles, URLs and snippets; use web_fetch on the best URL to read the page.",
@@ -71,7 +72,7 @@ pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
             json_obj(&[("url", "string")]),
         ));
     }
-    if cfg.tool_run_command {
+    if cfg.tool_run_command || cfg.is_unleashed() {
         out.push(tool_spec("run_command", "Run a shell command and return output. Use sparingly; read docs/man pages first when a tool is new.", json_obj(&[("command", "string")])));
     }
     out
@@ -209,7 +210,7 @@ pub fn run(ctx: &mut ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) ->
         "web_search" => web_search(ctx, &get("query")),
         "web_fetch" => web_fetch(ctx, &get("url")),
         "run_command" => {
-            let already_granted = ctx.cfg.tool_run_command;
+            let already_granted = ctx.cfg.tool_run_command || ctx.cfg.is_unleashed();
             if !already_granted {
                 "DENIED: command execution is off. Enable it in setup: /setup".to_string()
             } else if ctx.cfg.is_unleashed() {
@@ -899,6 +900,65 @@ mod tests {
             &json!({ "command": "echo hi" }).to_string(),
         );
         assert!(out.contains("DENIED"), "{out}");
+        let _ = std::fs::remove_dir_all(&paths.root);
+    }
+
+    #[test]
+    fn unleashed_offers_every_tool_spec() {
+        let (paths, mut cfg) = tmp("unleash-specs");
+        cfg.tool_web_search = false;
+        cfg.tool_read_files = false;
+        cfg.tool_write_files = false;
+        cfg.tool_run_command = false;
+
+        let leashed: Vec<String> = specs(&cfg)
+            .iter()
+            .map(|s| s.function.name.clone())
+            .collect();
+        assert!(
+            !leashed
+                .iter()
+                .any(|n| n == "read_file" || n == "run_command"),
+            "leashed must honor the switches: {leashed:?}"
+        );
+
+        cfg.leash = "unleashed".into();
+        let off: Vec<String> = specs(&cfg)
+            .iter()
+            .map(|s| s.function.name.clone())
+            .collect();
+        for want in [
+            "list_dir",
+            "read_file",
+            "write_file",
+            "web_search",
+            "web_fetch",
+            "run_command",
+        ] {
+            assert!(
+                off.contains(&want.to_string()),
+                "unleashed must offer {want}: {off:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&paths.root);
+    }
+
+    #[test]
+    fn unleashed_runs_command_even_when_the_switch_is_off() {
+        let (paths, mut cfg) = tmp("unleash-cmd");
+        cfg.tool_run_command = false;
+        cfg.leash = "unleashed".into();
+        let vectors = Vectors::open(&paths.vector_db).unwrap();
+        let mut log = ChatLog::new(&paths).unwrap();
+        let mut c = ctx(&paths, &cfg, &vectors);
+        let out = run(
+            &mut c,
+            &mut log,
+            "run_command",
+            &json!({ "command": "echo dct-unleashed-ok" }).to_string(),
+        );
+        assert!(!out.contains("DENIED"), "{out}");
+        assert!(out.contains("dct-unleashed-ok"), "{out}");
         let _ = std::fs::remove_dir_all(&paths.root);
     }
 

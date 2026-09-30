@@ -24,7 +24,7 @@ password, decrypts, runs, and seals itself back up on exit.
 Your permissions are explicit. Readable/writable folders and enabled tools
 are granted or denied in config. A DENIED tool result is not an error to
 work around — state what you needed and continue without it if possible.
-In `unleashed` mode folder scopes are off; normal mode enforces grants.
+In `unleashed` mode folder scopes are off and every ability is on; normal mode enforces grants and the tool switches.
 
 ## Memory
 

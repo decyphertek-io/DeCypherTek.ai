@@ -243,9 +243,10 @@ fn handle(
                 cfg.leash = rest.to_string();
                 cfg.save(paths)?;
                 let noun = if rest == "unleashed" {
-                    "off — scope checks are gone; tool grants still apply."
+                    "off — every ability is on, folder scopes are gone. \
+                     Re-leash anytime: /leash leashed (the tool switches resume)."
                 } else {
-                    "on — folder scopes enforced."
+                    "on — folder scopes enforced; only granted abilities run."
                 };
                 tui::info("LEASH", noun);
                 Ok(())
