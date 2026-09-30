@@ -9,8 +9,8 @@ own `dev-<name>` branch and their own prerelease channel.
 
 | Workflow | Trigger | Branch it runs on | What it produces |
 | --- | --- | --- | --- |
-| `dev-adminotaur.yml` | push + manual | `dev-adminotaur` | prerelease `v<version>-dev.<sha>` |
-| `dev-usaginotsuki.yml` | push + manual | `dev-usaginotsuki` | prerelease `v<version>-usagi.<sha>` |
+| `dev-adminotaur.yml` | push + manual | `dev-adminotaur` | rolling prerelease `v<version>-dev` |
+| `dev-usaginotsuki.yml` | push + manual | `dev-usaginotsuki` | rolling prerelease `v<version>-usagi` |
 | `Prod-Build.yml` | manual | `main` | stable release `v<version>` (`releases/latest`) |
 | `sonarqube.yml` | manual (`workflow_dispatch`) | whichever branch you dispatch it on | security findings committed to `appsec/` |
 
@@ -25,14 +25,17 @@ macOS aarch64/x86_64), a smoke test, checksums, packaging.
   install script serves whatever `releases/latest` points at. Never build
   experiments directly on `main`.
 - `dev-adminotaur` — **adminotaur's channel**. Every push runs tests and
-  publishes a prerelease tagged `v<version>-dev.<sha>`.
+  overwrites the channel's single rolling prerelease `v<version>-dev`
+  in place.
 - `dev-usaginotsuki` — **usaginotsuki's channel**. Same pipeline, same
-  gates, prerelease tagged `v<version>-usagi.<sha>`.
+  gates, rolling prerelease `v<version>-usagi`.
 
 A new contributor follows the same pattern: copy
 `dev-adminotaur.yml` to `dev-<yourname>.yml`, change the name, branch,
 concurrency group, artifact prefix and tag suffix, push branch and
-workflow together — CI does the rest.
+workflow together — CI does the rest. The release sweep matches your
+suffix, so your channel only ever overwrites its own releases — never
+another contributor's, never the stable one.
 
 ## The Releases (two channels)
 
@@ -57,8 +60,13 @@ the other's pipeline. To test each other's work:
    `dev-*` branch and flow to `main` only via an explicit promotion
    (merge + manual Prod-Build), after both sides agree.
 
-Prereleases with the same tag sha are re-uploaded (`--clobber`) if a
-branch's HEAD is rebuilt; a new push always means a new `.<sha>` tag.
+Each dev channel keeps exactly one prerelease: every push overwrites
+it in place (assets `--clobber` + refreshed notes) and sweeps away the
+channel's own older releases (previous versions' rolling tags and the
+legacy `v<version>-<suffix>.<sha>` pile), so the releases page never
+grows past Prod + one prerelease per dev channel. A sweep matches only
+its own suffix (`-dev`, `-usagi`), so the two dev channels can never
+overwrite each other's releases — only their own.
 
 ## SonarQube (the security loop)
 
