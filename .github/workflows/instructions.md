@@ -9,9 +9,9 @@ own `dev-<name>` branch and their own prerelease channel.
 
 | Workflow | Trigger | Branch it runs on | What it produces |
 | --- | --- | --- | --- |
-| `dev-adminotaur.yml` | push + manual | `dev-adminotaur` | rolling prerelease `v<version>-dev` |
-| `dev-usaginotsuki.yml` | push + manual | `dev-usaginotsuki` | rolling prerelease `v<version>-usagi` |
-| `Prod-Build.yml` | manual | `main` | stable release `v<version>` (`releases/latest`) |
+| `dev-adminotaur.yml` | push + manual | `dev-adminotaur` | rolling prerelease `v<version>-dev-adminotaur` |
+| `dev-usaginotsuki.yml` | push + manual | `dev-usaginotsuki` | rolling prerelease `v<version>-dev-usaginotsuki` |
+| `Prod-Build.yml` | manual | `main` | stable release `v<version>` (`releases/latest`), re-published fresh every dispatch |
 | `sonarqube.yml` | manual (`workflow_dispatch`) | whichever branch you dispatch it on | security findings committed to `appsec/` |
 
 All dev workflows run the full gate before shipping anything: rustfmt
@@ -25,10 +25,11 @@ macOS aarch64/x86_64), a smoke test, checksums, packaging.
   install script serves whatever `releases/latest` points at. Never build
   experiments directly on `main`.
 - `dev-adminotaur` — **adminotaur's channel**. Every push runs tests and
-  overwrites the channel's single rolling prerelease `v<version>-dev`
-  in place.
+  overwrites the channel's single rolling prerelease
+  `v<version>-dev-adminotaur` in place — the branch name is in the tag,
+  so it can never be confused with (or overwrite) the other channel.
 - `dev-usaginotsuki` — **usaginotsuki's channel**. Same pipeline, same
-  gates, rolling prerelease `v<version>-usagi`.
+  gates, rolling prerelease `v<version>-dev-usaginotsuki`.
 
 A new contributor follows the same pattern: copy
 `dev-adminotaur.yml` to `dev-<yourname>.yml`, change the name, branch,
@@ -63,10 +64,13 @@ the other's pipeline. To test each other's work:
 Each dev channel keeps exactly one prerelease: every push overwrites
 it in place (assets `--clobber` + refreshed notes) and sweeps away the
 channel's own older releases (previous versions' rolling tags and the
-legacy `v<version>-<suffix>.<sha>` pile), so the releases page never
-grows past Prod + one prerelease per dev channel. A sweep matches only
-its own suffix (`-dev`, `-usagi`), so the two dev channels can never
-overwrite each other's releases — only their own.
+legacy `v<version>-<branch>.<sha>` pile), so the releases page never
+grows past one stable + one prerelease per dev channel. A sweep matches
+only its own tag names (`-dev-adminotaur`, `-dev-usaginotsuki`), so the
+two dev channels can never overwrite each other's releases — only their
+own. Prod-Build re-publishes its single stable release fresh on every
+dispatch (new date, new notes, same one release) and never touches
+prereleases.
 
 ## SonarQube (the security loop)
 

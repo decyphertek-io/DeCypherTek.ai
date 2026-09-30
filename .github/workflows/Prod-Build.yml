@@ -6,11 +6,14 @@
 # script pulls `releases/latest`, so every dispatch is instantly the
 # version a phone or PC installs — and re-running the installer updates.
 #
-# Production keeps exactly ONE release: a rebuild overwrites the same
-# tag's assets (and notes), and superseded stable tags (from before a
-# version bump) are swept away — `releases/latest` always serves the
-# fresh build. Prereleases (the dev channels') are never touched from
-# here, so this pipeline can never create a dev pre-release.
+# Production keeps exactly ONE release: every dispatch RE-PUBLISHES it
+# (same tag, fresh date, fresh notes, new assets), so the releases page
+# always shows the new prod build — not a stale "released days ago"
+# entry with silently swapped assets. Superseded stable tags (from
+# before a version bump) are swept away — `releases/latest` always
+# serves the fresh build. Prereleases (the dev channels') are never
+# touched from here, so this pipeline can never create a dev
+# pre-release, and Prod only ever ships `v<version>`.
 #
 # Targets:
 #   aarch64-unknown-linux-musl  -> Termux on Android (64-bit) + ARM Linux
@@ -31,6 +34,10 @@ on:
         description: "Release notes (shown on the release page)"
         required: false
         default: "New release of DeCypherTek.ai — run the install command to get it: curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash"
+
+concurrency:
+  group: Prod-Build
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -168,15 +175,14 @@ jobs:
           EOF
           )"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists — overwriting notes and assets (--clobber)."
-            gh release edit "$TAG" --title "DeCypherTek.ai $TAG" --notes "$NOTES" --latest
-            gh release upload "$TAG" dist/* --clobber
-          else
-            gh release create "$TAG" dist/* \
-              --title "DeCypherTek.ai $TAG" \
-              --notes "$NOTES" \
-              --latest
+            echo "Release $TAG exists — replacing it with this fresh build (same tag, new date + notes)."
+            gh release delete "$TAG" --yes --cleanup-tag
           fi
+          gh release create "$TAG" dist/* \
+            --title "DeCypherTek.ai $TAG (Prod)" \
+            --notes "$NOTES" \
+            --latest
+          echo "$TAG re-published as the single production release."
 
           # One production release at a time: `releases/latest` always
           # serves the fresh build, so a superseded stable tag (left by
