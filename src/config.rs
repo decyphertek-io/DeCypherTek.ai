@@ -1,3 +1,4 @@
+use crate::models::OPENROUTER_DEFAULT_MODELS;
 use crate::paths::Paths;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -63,7 +64,7 @@ impl Default for Config {
             version: 1,
             provider: "openrouter".into(),
             openrouter_api_key: String::new(),
-            openrouter_model: "z-ai/glm-latest".into(),
+            openrouter_model: OPENROUTER_DEFAULT_MODELS[0].into(),
             ollama_url: "http://127.0.0.1:11434".into(),
             ollama_model: "qwen2.5:0.5b-instruct".into(),
             leash: "leashed".into(),
@@ -83,7 +84,28 @@ impl Default for Config {
 impl Config {
     pub fn load(p: &Paths) -> Result<Config> {
         let raw = std::fs::read_to_string(&p.config_file)?;
-        Ok(serde_json::from_str(&raw)?)
+        let mut cfg: Config = serde_json::from_str(&raw)?;
+        if cfg.fix_openrouter_model() {
+            cfg.save(p)?;
+        }
+        Ok(cfg)
+    }
+
+    /// OpenRouter's keeps-current aliases exist only with their tilde
+    /// prefix (`~z-ai/glm-latest`, `~z-ai/glm-flash-latest`). Vaults
+    /// saved before that carry the tilde-free spelling, which the API
+    /// rejects with HTTP 400 — rewrite them to the curated default.
+    /// Returns true when the stored config needs rewriting.
+    fn fix_openrouter_model(&mut self) -> bool {
+        if matches!(
+            self.openrouter_model.as_str(),
+            "z-ai/glm-latest" | "z-ai/glm-flash-latest"
+        ) {
+            self.openrouter_model = OPENROUTER_DEFAULT_MODELS[0].to_string();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn save(&self, p: &Paths) -> Result<()> {
@@ -109,6 +131,36 @@ impl Config {
         match self.provider() {
             Provider::OpenRouter => format!("openrouter:{}", self.openrouter_model),
             Provider::Ollama => format!("ollama:{}", self.ollama_model),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg_with(model: &str) -> Config {
+        Config {
+            openrouter_model: model.into(),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn tilde_free_latest_aliases_migrate() {
+        for stale in ["z-ai/glm-latest", "z-ai/glm-flash-latest"] {
+            let mut cfg = cfg_with(stale);
+            assert!(cfg.fix_openrouter_model(), "{stale} must migrate");
+            assert_eq!(cfg.openrouter_model, OPENROUTER_DEFAULT_MODELS[0]);
+        }
+    }
+
+    #[test]
+    fn other_model_ids_are_untouched() {
+        for keep in [OPENROUTER_DEFAULT_MODELS[0], "~z-ai/glm-latest", "m"] {
+            let mut cfg = cfg_with(keep);
+            assert!(!cfg.fix_openrouter_model(), "{keep} must stay");
+            assert_eq!(cfg.openrouter_model, keep);
         }
     }
 }
