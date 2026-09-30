@@ -175,7 +175,7 @@ if [[ "$CHANNEL_PROMPT" == 1 ]]; then
     echo "  1) Production   — the latest stable release (default: just press Enter)"
     echo "  2) Experimental — the newest dev build from the 'dev-adminotaur' branch"
     ans=""
-    printf 'Do you want the Production or Experimental branch? [P/e] '
+    printf 'Do you want the Production or Experimental branch? [1 (Prod) / 2 (Dev)] '
     read -r ans </dev/tty || true
     case "${ans:-}" in
       2|e|E|exp*|dev*|Experimental*) CHANNEL="experimental" ;;
