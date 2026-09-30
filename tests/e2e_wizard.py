@@ -64,7 +64,7 @@ out = text()
 check("The Leash" in out or "leash" in out.lower(), "leash prompt appeared")
 send("\r")                     # leashed
 drain(1.5)                     # tool multiselect
-send("\r")                     # defaults: web_search + read_files
+send("\r")                     # defaults: web_search + read_files + mcp_servers
 drain(1.5)                     # research profile confirm
 out = text()
 check("research profile" in out.lower(), "research profile prompt appeared")

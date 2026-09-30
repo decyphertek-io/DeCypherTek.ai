@@ -119,49 +119,12 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         }
     }
 
-    // 3. The Leash.
-    let leash_opts = vec![
-        "Leashed — default. Reads only granted folders, writes only its own data dir. Tool grants below still apply.",
-        "Unleashed — folder scopes off: it may read/write anywhere your user can. Tool grants still apply.",
-    ];
-    let leash_idx = Select::with_theme(&theme)
-        .with_prompt("The Leash — keep it on or take it off?")
-        .items(&leash_opts)
-        .default(0)
-        .interact()?;
-    cfg.leash = if leash_idx == 0 {
-        "leashed".into()
-    } else {
-        "unleashed".into()
-    };
+    // 3. The Leash + the abilities it gets: leashed walks a clear
+    //    can/can't list with space-to-toggle grants; unleashed shows
+    //    everything it could do and takes one informed yes.
+    choose_leash_and_tools(&mut cfg, &theme)?;
 
-    // 4. Tool grants.
-    let tool_items = vec![
-        "web_search — research the web (keyless DuckDuckGo + Wikipedia)",
-        "read_files — read files in granted folders",
-        "write_files — write files in granted folders",
-        "run_command — execute shell commands (leashed asks before each; unleashed just runs)",
-        "mcp_servers — run MCP tool servers from /store (docker; hardened, internal-only)",
-    ];
-    let defaults = vec![
-        cfg.tool_web_search,
-        cfg.tool_read_files,
-        cfg.tool_write_files,
-        cfg.tool_run_command,
-        cfg.tool_mcp,
-    ];
-    let chosen = MultiSelect::with_theme(&theme)
-        .with_prompt("Grant tools (space to toggle)")
-        .items(&tool_items)
-        .defaults(&defaults)
-        .interact()?;
-    cfg.tool_web_search = chosen.contains(&0);
-    cfg.tool_read_files = chosen.contains(&1);
-    cfg.tool_write_files = chosen.contains(&2);
-    cfg.tool_run_command = chosen.contains(&3);
-    cfg.tool_mcp = chosen.contains(&4);
-
-    // 5. Research profiles (optional) — a YAML site list saved into the
+    // 4. Research profiles (optional) — a YAML site list saved into the
     //    wiki's research/ folder; `/research <name>.yml <topic>` then
     //    searches exactly those sites instead of the general web.
     let mut new_profile: Option<(String, String, Vec<String>)> = None;
@@ -210,7 +173,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         }
     }
 
-    // 6. Persist: config, baseline wiki, RAG ingest.
+    // 5. Persist: config, baseline wiki, RAG ingest.
     paths.ensure_staging()?;
     crate::wiki::write_baseline(paths)?;
     cfg.save(paths)?;
@@ -253,6 +216,116 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     }
 
     Ok(cfg)
+}
+
+/// The Leash step plus the abilities that come with it.
+/// Leashed: one panel lists what ADMINOTAUR can and cannot do, then
+/// every ability is offered as a space-to-toggle grant. Unleashed:
+/// one panel lists everything it could do, then a single informed
+/// "Do you really accept?" — agreeing turns every ability on and
+/// drops folder scopes; declining stays leashed with the grant menu.
+fn choose_leash_and_tools(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
+    let leash_opts = vec![
+        "Leashed — granted folders + granted abilities only (can/can't menu next)",
+        "Unleashed — everything allowed (the full list next, then one accept)",
+    ];
+    let idx = Select::with_theme(theme)
+        .with_prompt("The Leash — keep it on or take it off?")
+        .items(&leash_opts)
+        .default(0)
+        .interact()?;
+
+    let mut unleashed = idx == 1;
+    if unleashed {
+        unleashed = confirm_unleashed(theme)?;
+        if !unleashed {
+            tui::info(
+                "THE LEASH",
+                "Not accepted — staying LEASHED. Grant abilities one by one below.",
+            );
+        }
+    }
+    cfg.leash = if unleashed {
+        "unleashed".into()
+    } else {
+        "leashed".into()
+    };
+
+    if unleashed {
+        // One accept covers everything — all abilities on, scopes off.
+        cfg.tool_web_search = true;
+        cfg.tool_read_files = true;
+        cfg.tool_write_files = true;
+        cfg.tool_run_command = true;
+        cfg.tool_mcp = true;
+        tui::info(
+            "UNLEASHED",
+            "Accepted — every ability is on, folder scopes are off. Back out anytime: \
+             /leash leashed. Re-tune grants: /grants read|write <dir>, /setup.",
+        );
+    } else {
+        tui::info(
+            "LEASHED — CAN AND CANNOT",
+            "CAN (always): chat with you · remember into its encrypted RAG memory \
+             + wiki · use its own ~/.decyphertek.ai\n\
+             CAN (only if you enable it below — SPACE toggles): search the web · \
+             read files in granted folders · write files in granted folders · \
+             run shell commands (each asks y/N first) · run MCP tool servers \
+             from /store (docker; hardened, internal-only)\n\
+             CANNOT: read or write outside granted folders (DENIED, logged) · \
+             run a command without your y/N · use anything left off below\n\
+             Widen later anytime: /grants read|write <dir> · redo this walk: /setup",
+        );
+        let tool_items = vec![
+            "web_search — research the web (keyless DuckDuckGo + Wikipedia)",
+            "read_files — read files in granted folders",
+            "write_files — write files in granted folders",
+            "run_command — execute shell commands (leashed asks y/N before each)",
+            "mcp_servers — run MCP tool servers from /store (docker; hardened, internal-only)",
+        ];
+        let defaults = vec![
+            cfg.tool_web_search,
+            cfg.tool_read_files,
+            cfg.tool_write_files,
+            cfg.tool_run_command,
+            cfg.tool_mcp,
+        ];
+        let chosen = MultiSelect::with_theme(theme)
+            .with_prompt("Grant tools (space to toggle)")
+            .items(&tool_items)
+            .defaults(&defaults)
+            .interact()?;
+        cfg.tool_web_search = chosen.contains(&0);
+        cfg.tool_read_files = chosen.contains(&1);
+        cfg.tool_write_files = chosen.contains(&2);
+        cfg.tool_run_command = chosen.contains(&3);
+        cfg.tool_mcp = chosen.contains(&4);
+    }
+    Ok(())
+}
+
+/// The unleashed side of the bargain: everything the agent can do
+/// with the leash off — and the one question that switches it all on.
+fn confirm_unleashed(theme: &ColorfulTheme) -> Result<bool> {
+    tui::warn(
+        "UNLEASHED — WHAT ADMINOTAUR CAN DO",
+        "• READ any file your user can reach — not just granted folders\n\
+         • WRITE, change and delete files anywhere your user can write\n\
+         • RUN any shell command — no per-command y/N ask anymore\n\
+         • SEARCH the web (keyless DuckDuckGo + Wikipedia)\n\
+         • RUN MCP tool servers from /store (docker; hardened, network=none, stdio-only)\n\
+         • BUILD subagents that carry this same access\n\n\
+         Nothing limits it beyond your user's own permissions — if it \
+         misbehaves it can wreck your home directory. It is logged, \
+         but only you can stop it.",
+    );
+    let yes = Confirm::with_theme(theme)
+        .with_prompt(
+            "Do you really accept? (Yes = everything above — all abilities on, folder scopes off)",
+        )
+        .default(false)
+        .interact()?;
+    Ok(yes)
 }
 
 fn choose_openrouter(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
