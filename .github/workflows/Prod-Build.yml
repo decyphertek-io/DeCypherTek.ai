@@ -6,6 +6,12 @@
 # script pulls `releases/latest`, so every dispatch is instantly the
 # version a phone or PC installs — and re-running the installer updates.
 #
+# Production keeps exactly ONE release: a rebuild overwrites the same
+# tag's assets (and notes), and superseded stable tags (from before a
+# version bump) are swept away — `releases/latest` always serves the
+# fresh build. Prereleases (the dev channels') are never touched from
+# here, so this pipeline can never create a dev pre-release.
+#
 # Targets:
 #   aarch64-unknown-linux-musl  -> Termux on Android (64-bit) + ARM Linux
 #   armv7-unknown-linux-musleabihf -> older 32-bit Android phones
@@ -162,7 +168,8 @@ jobs:
           EOF
           )"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists — updating assets (--clobber)."
+            echo "Release $TAG exists — overwriting notes and assets (--clobber)."
+            gh release edit "$TAG" --title "DeCypherTek.ai $TAG" --notes "$NOTES" --latest
             gh release upload "$TAG" dist/* --clobber
           else
             gh release create "$TAG" dist/* \
@@ -170,3 +177,17 @@ jobs:
               --notes "$NOTES" \
               --latest
           fi
+
+          # One production release at a time: `releases/latest` always
+          # serves the fresh build, so a superseded stable tag (left by
+          # a version bump) is swept here. Prereleases — the dev
+          # channels' — are never touched from this workflow.
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name' \
+            | while read -r OLD; do
+                if [[ "$OLD" == "$TAG" ]]; then continue; fi
+                PRE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$OLD" --jq '.prerelease')"
+                if [[ "$PRE" == "true" ]]; then continue; fi
+                echo "Removing superseded stable release: $OLD"
+                gh release delete "$OLD" --yes --cleanup-tag \
+                  || echo "could not delete $OLD (continuing)"
+              done
