@@ -56,7 +56,7 @@ send("sk-or-v1-dummy-key-e2e\r")
 drain(6.0)                     # model select + live probe
 out = text()
 check("Default model" in out, "model prompt shown")
-send("\r")                     # z-ai/glm-latest (default model)
+send("\r")                     # ~z-ai/glm-flash-latest (default model)
 drain(1.5)                     # memory folders question
 send("\r")                     # empty -> no grant question, no leash skip
 drain(1.5)

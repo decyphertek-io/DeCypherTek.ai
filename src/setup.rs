@@ -289,7 +289,7 @@ fn choose_openrouter(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
         .interact()?;
     cfg.openrouter_model = if display[idx].eq(&custom.to_string()) {
         let m: String = Input::with_theme(theme)
-            .with_prompt("Model id (e.g. z-ai/glm-latest)")
+            .with_prompt("Model id (e.g. ~z-ai/glm-flash-latest)")
             .interact_text()?;
         m.trim().to_string()
     } else {

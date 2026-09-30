@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// The curated OpenRouter picks offered at setup: strong current
-/// models across providers — the default is the first entry.
+/// models across providers — the default is the first entry. The GLM
+/// "latest" aliases carry OpenRouter's tilde prefix; without it the
+/// API rejects the id with HTTP 400 "not a valid model ID".
 pub const OPENROUTER_DEFAULT_MODELS: &[&str] = &[
-    "z-ai/glm-latest",
+    "~z-ai/glm-flash-latest",
+    "~z-ai/glm-latest",
     "moonshotai/kimi-k3",
     "deepseek/deepseek-v4.1-flash",
 ];
