@@ -1,0 +1,16 @@
+# Paths are relative to android/ (this file sits here).
+
+# Flutter / Gradle build outputs
+app/build/
+app/.dart_tool/
+app/pubspec.lock
+app/android/.gradle/
+app/android/local.properties
+app/android/app/.cxx/
+
+# Engine + core .so artifacts staged for the APK — rebuilt by the
+# scripts (android/scripts/build-android.sh), never committed.
+app/android/app/src/main/jniLibs/
+
+# Rust core build output
+core/target/

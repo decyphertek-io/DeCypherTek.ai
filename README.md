@@ -147,6 +147,35 @@ In the setup wizard the two modes ask differently:
 - **Leashed (default)** — first one panel spells out what it **can** (chat and remember into its encrypted memory, always; each ability you enable) and **cannot** do (read/write outside granted folders, commands without your y/N, anything left off). Then every ability is offered in a single **space-to-toggle** menu: `web_search`, `read_files`, `write_files`, `run_command` (each command still asks y/N when it runs), `mcp_servers`.
 - **Unleashed** — no toggle menu: one panel lists everything the agent could then do (read/write anywhere your user can, run commands without asking, web, MCP containers, subagents carrying the same access), followed by one explicit question: **“Do you really accept?”**. Yes → all abilities on, folder scopes off. No → it stays leashed and the space-to-toggle menu appears instead.
 
+## Android App — the QEMU + Mobian VM (no VNC, ever)
+
+Termux/proot can't run a real kernel or containers, and Podroid exposes
+VNC on :5900 with no password — so the repo now ships its own Android
+app: **Flutter + Rust, in [`android/`](android/README.md)**, built by
+its own manual workflows, completely separate from the terminal AI
+above (which keeps building for regular Linux unchanged — the
+Android-Build workflow runs the root crate's tests as a guard).
+
+What it does: boots a **headless Mobian VM** via a bundled
+QEMU aarch64 engine (`-display none`, no VNC, no monitor — port 5900 is
+never bound), with exactly one network forward: **SSH on
+`127.0.0.1:2222`, loopback-only**. The app is a terminal view (plus a
+settings button) that reaches the VM over keyed, host-key-pinned SSH —
+nothing else can. Inside the VM, the agent installs **unchanged** via
+the same `scripts/install.sh` above, with podman for `/store`'s MCP
+containers. First launch downloads the minimal Mobian image
+(~800 MB, SSH + podman only, no Phosh), provisions the VM, and the
+**install password you set becomes the app lock**: it seals the app's
+SSH key and settings with AES-256-GCM + Argon2id (the same envelope as
+the vault) and unlocks the app on every launch. Use the same password
+for the vault wizard and one password runs the whole system.
+
+Pipelines (manual dispatch, like Prod-Build): **VM-Engine-Build**
+cross-compiles QEMU for Android → the rolling `vm-engine-latest`
+release; **Android-Build** gates + builds the APK → the rolling
+`android-latest` prerelease. Details: [`.github/workflows/instructions.md`](.github/workflows/instructions.md)
+and [`android/README.md`](android/README.md).
+
 ## Releases
 
 The **Prod-Build** workflow is manual dispatch: *Actions → Prod-Build → Run workflow* — optionally set a tag (default is `v<version from Cargo.toml>`) and notes. It cross-compiles the single binary for every target, packages + checksums them, and publishes a GitHub Release. The install script pulls `releases/latest`, so every release instantly becomes what a phone or PC installs, and the installer doubles as the updater.

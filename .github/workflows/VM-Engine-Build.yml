@@ -1,0 +1,90 @@
+# DeCypherTek.ai — QEMU VM engine build (manual dispatch).
+#
+# Cross-compiles the QEMU aarch64 system emulator for Android (plus the
+# UEFI firmware) and publishes the artifacts as the single rolling
+# `vm-engine` release. The Android-Build workflow downloads them from
+# there; the app's first-launch downloader pulls the Mobian image from
+# the same releases page.
+#
+# Run: Actions → VM-Engine-Build → Run workflow (rarely — only when the
+# engine must change). Every dispatch RE-PUBLISHES the release (same tag,
+# fresh assets), exactly like Prod-Build.
+
+name: VM-Engine-Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (empty = vm-engine-latest)"
+        required: false
+        default: ""
+      qemu_version:
+        description: "QEMU version to build"
+        required: false
+        default: "9.2.0"
+
+concurrency:
+  group: VM-Engine-Build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build qemu engine (android arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson ninja-build python3 pkg-config curl xz-utils git
+
+      - name: Install Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "ndk;27.2.12479018 platforms;android-35 build-tools;35.0.0"
+
+      - name: Locate the NDK
+        run: |
+          NDK="$(ls -d "$ANDROID_HOME"/ndk/* | sort | tail -n1)"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "NDK: $NDK"
+
+      - name: Build QEMU + EDK2 for Android
+        run: |
+          bash android/scripts/build-qemu-android.sh \
+            --ndk "$ANDROID_NDK_HOME" \
+            --qemu-version "${{ github.event.inputs.qemu_version }}" \
+            --out dist --edk2 download
+
+      - name: Checksum
+        run: |
+          cd dist
+          sha256sum libqemu-arm64-v8a.so libedk2-arm64.fd libedk2-vars.fd > checksums.txt
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vm-engine
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          [[ -n "$TAG" ]] || TAG="vm-engine-latest"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" dist/* \
+            --title "DeCypherTek.ai VM engine $TAG" \
+            --notes "QEMU ${{ github.event.inputs.qemu_version }} aarch64 system emulator for Android (headless, VNC-free) + EDK2 ArmVirt firmware. Consumed by the Android-Build workflow and the app's image.ensure." \
+            --prerelease
