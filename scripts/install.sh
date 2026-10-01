@@ -37,6 +37,24 @@
 # run in hardened containers that talk only to the agent (network=none,
 # cap-drop=ALL, stdio-only).
 #
+# Podroid — the Android app that boots a REAL Alpine Linux VM with its
+# own kernel (QEMU/AVF; a virtual machine, not a proot translation
+# layer) — needs NONE of that Termux machinery: the guest already IS a
+# Linux machine, so no proot Debian is bootstrapped and the plain Linux
+# one-folder install runs directly inside the VM (Podroid detected by
+# fingerprints: /etc/podroid, its OpenRC services, the podroid-hostd
+# bridge daemon, the podroid.* kernel cmdline markers). Podman ships
+# pre-installed and rootless-ready inside that Alpine VM, and the MCP
+# tool servers @store launches connect to exactly that podman: the agent
+# keeps issuing plain `docker` commands, so the installer writes a small
+# docker->podman shim into the agent bin dir it already prepends to
+# PATH — ~/.decyphertek.ai/bin/docker, found purely by PATH order.
+# The VM's own real docker package (/usr/bin/docker + dockerd) stays
+# untouched, runnable by full path exactly as Podroid shipped it.
+# Alpine's default shell is busybox ash (a login shell that reads
+# ~/.profile, never ~/.bashrc), so on Podroid — and any other Alpine —
+# the PATH block additionally lands in ~/.profile.
+#
 # On a PC the install is ONE folder: the release binary lands in
 # ~/.decyphertek.ai/bin/ — the same ~/.decyphertek.ai that already holds
 # vault.dct and staging/, so the whole agent (program + encrypted data)
@@ -88,6 +106,11 @@ esac
 #   TERMUX=1  — Android/Termux: the agent's home becomes a proot Debian
 #               (containers need root-free podman); nothing of the agent
 #               is downloaded into Termux itself.
+#   PODROID=1 — Android/Podroid: the terminal is already inside a REAL
+#               Alpine Linux VM with podman pre-installed, so no proot
+#               Debian is built — the plain Linux one-folder install
+#               runs in the VM, and @store's `docker` commands are
+#               served by that pre-installed podman.
 #   IS_MAC=1  — binary + PATH only; runtime hint points at Docker Desktop.
 #   PC Linux  — the flavor (DISTRO_ID via /etc/os-release) and its
 #               package manager (PKG_MGR) pick the container-runtime
@@ -96,6 +119,7 @@ esac
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 TERMUX=0
+PODROID=0
 IS_LINUX=0
 IS_MAC=0
 if [[ "$OS" == Linux ]];  then IS_LINUX=1; fi
@@ -103,6 +127,21 @@ if [[ "$OS" == Darwin ]]; then IS_MAC=1; fi
 if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == *com.termux* ]]; then
   TERMUX=1
   IS_LINUX=1
+fi
+# Podroid detection: everything the guest bakes into its Alpine squashfs
+# is a fingerprint — the /etc/podroid config dir, its OpenRC services
+# (/etc/init.d/podroid-*), the podroid-hostd guest->Android bridge
+# daemon, or the podroid.* markers the app passes on the kernel command
+# line. Any single one means the installer is running INSIDE the VM, a
+# real Linux machine, so the PC path below applies with one special:
+# MCP containers connect to the VM's pre-installed podman.
+if [[ "$IS_LINUX" == 1 && "$TERMUX" != 1 ]]; then
+  if [[ -d /etc/podroid ]] \
+     || [[ -x /usr/local/bin/podroid-hostd ]] \
+     || grep -q 'podroid\.' /proc/cmdline 2>/dev/null \
+     || compgen -G '/etc/init.d/podroid-*' >/dev/null 2>&1; then
+    PODROID=1
+  fi
 fi
 
 case "$OS/$ARCH" in
@@ -142,6 +181,10 @@ fi
 if [[ "$TERMUX" == 1 ]]; then
   say "Detected: Termux on Android ($ARCH) -> $TARGET"
   say "Install mode: proot-Debian agent home, containers on root-free podman."
+elif [[ "$PODROID" == 1 ]]; then
+  say "Detected: Podroid — Alpine Linux VM on Android ($ARCH) -> $TARGET"
+  say "Install mode: one folder — $DATA_DIR; @store MCP containers on the"
+  say "VM's pre-installed podman (no proot — the VM is already real Linux)."
 elif [[ "$IS_MAC" == 1 ]]; then
   say "Detected: macOS ($ARCH) -> $TARGET"
   say "Install mode: single binary into $DATA_DIR/bin + PATH."
@@ -198,8 +241,11 @@ fi
 # Packages go through whichever manager the gates detected — Debian's
 # apt, Fedora's dnf, Arch's pacman, openSUSE's zypper, Alpine's apk or
 # Homebrew on macOS — so the same installer is portable across flavors.
+# As root — the Podroid VM's default root login, a root server shell —
+# no elevation is attempted at all: sudo is only prepended for non-root
+# users that have it.
 SU=""
-if need sudo; then SU="sudo"; fi
+if [[ "$(id -u)" != 0 ]] && need sudo; then SU="sudo"; fi
 
 pkg_install() {  # $@ = packages -> rc 0 when the detected manager installed them
   case "$PKG_MGR" in
@@ -609,6 +655,55 @@ setup_container_runtime() {
     fi
     return
   fi
+  if [[ "$PODROID" == 1 ]]; then
+    # Podroid: the Alpine VM ships podman pre-installed and rootless-ready
+    # (crun, fuse-overlayfs, netavark, setcap'd newuidmap baked into its
+    # squashfs) — @store's MCP servers connect to exactly that podman, so
+    # nothing is installed over it. But @store keeps issuing plain `docker`
+    # commands (info / images / pull / run), and the VM's real docker
+    # package owns /usr/bin/docker (apk-installing Alpine's podman-docker
+    # would just fight it), so the docker->podman shim lands in the agent
+    # bin dir this installer already prepends to PATH: `docker` resolves to
+    # podman by PATH order, and Podroid's own docker (dockerd included)
+    # stays exactly as the VM shipped it — runnable by full path.
+    if ! need podman; then
+      warn "podman missing inside this Podroid VM (unexpected) — trying apk…"
+      pkg_install podman || warn "could not install podman — @store browsing works, MCP launches will not."
+    fi
+    if need podman; then
+      mkdir -p "$DEST_BIN"
+      cat > "$DEST_BIN/docker" <<'PODROIDSHIM'
+#!/bin/sh
+# DeCypherTek.ai — the `docker` CLI, served by podman on Podroid.
+# Dropped here by scripts/install.sh: the VM's pre-installed daemonless
+# podman is what @store's MCP tool containers connect to, and this shim
+# routes the agent's plain `docker` commands to it. Found purely by PATH
+# order; uninstalling the agent (scripts/uninstall.sh) removes it.
+exec podman "$@"
+PODROIDSHIM
+      chmod +x "$DEST_BIN/docker"
+      ok "docker -> podman shim wired: $DEST_BIN/docker — @store MCP"
+      ok "containers run on the VM's pre-installed podman; Podroid's own"
+      ok "docker (/usr/bin/docker, dockerd) is untouched."
+      say "Waking podman up once (first run in a fresh VM can take a moment)…"
+      PROBE="off"
+      if need timeout; then
+        if timeout 30 podman info >/dev/null 2>&1; then PROBE="ok"; fi
+      else
+        if podman info >/dev/null 2>&1; then PROBE="ok"; fi
+      fi
+      if [[ "$PROBE" == "ok" ]]; then
+        ok "podman answered inside Podroid — @store fully operational."
+      else
+        warn "podman did not answer within 30 s — the agent itself runs fine;"
+        warn "@store registers servers, and launches usually recover once"
+        warn "the VM has been up a moment. Re-run the installer to re-probe."
+      fi
+    else
+      warn "no podman inside this Podroid VM — @store MCP launches disabled."
+    fi
+    return
+  fi
   if need docker; then
     ok "container runtime already present: $(docker --version 2>/dev/null || echo docker)"
     return
@@ -740,10 +835,16 @@ else
 
   setup_container_runtime
 
-  # PATH: a marked, removable block — written only when missing.
+  # PATH: a marked, removable block — written only when missing. On
+  # Podroid and any other Alpine the default shell is busybox ash: a
+  # LOGIN shell that reads ~/.profile and never ~/.bashrc, so the block
+  # additionally goes to ~/.profile there.
   if [[ ":$PATH:" != *":$DEST_BIN:"* ]]; then
-    for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    ASH_PROFILE=0
+    if [[ "$PODROID" == 1 || "$DISTRO_ID" == "alpine" ]]; then ASH_PROFILE=1; fi
+    for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
       if [[ "$rc" == "$HOME/.zshrc" && ! -f "$rc" ]]; then continue; fi
+      if [[ "$rc" == "$HOME/.profile" && "$ASH_PROFILE" != 1 ]]; then continue; fi
       touch "$rc"
       if ! grep -qF '.decyphertek.ai/bin' "$rc"; then
         printf '\n# DeCypherTek.ai — agent bin on PATH (uninstall.sh removes this block)\nexport PATH="$HOME/.decyphertek.ai/bin:$PATH"\n' >> "$rc"
