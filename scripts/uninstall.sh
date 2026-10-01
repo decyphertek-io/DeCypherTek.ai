@@ -18,9 +18,11 @@
 #       alias in ~/.bashrc / ~/.zshrc.
 #
 #   Desktop:
-#     - the ~/.decyphertek.ai/bin folder (the binary) and its marked
-#       PATH block in ~/.bashrc / ~/.zshrc; plus a legacy binary an
-#       older installer left in ~/.local/bin. podman and every other
+#     - the ~/.decyphertek.ai/bin folder (the binary — on Podroid it
+#       also holds the docker->podman shim, removed with it) and its
+#       marked PATH block in ~/.bashrc / ~/.zshrc (~/.profile too on
+#       Alpine/Podroid, whose ash reads .profile); plus a legacy binary
+#       an older installer left in ~/.local/bin. podman and every other
 #       package it installed stay — they are shared software.
 #
 # The encrypted vault in ~/.decyphertek.ai holds your agent — memory,
@@ -189,7 +191,7 @@ else
   else
     ok "no agent bin folder found at $DATA_DIR/bin (already gone)"
   fi
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     [[ -f "$rc" ]] || continue
     if grep -qF '.decyphertek.ai/bin' "$rc"; then
       grep -v -F \
