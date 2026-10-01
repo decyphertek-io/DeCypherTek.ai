@@ -1,0 +1,144 @@
+# DeCypherTek.ai — Android APK build (manual dispatch).
+#
+# Builds the Flutter + Rust Android app (android/) SEPARATELY from the
+# terminal AI: the repo root's Rust crate is built by its own pipelines
+# (Prod-Build / dev channels) and is never touched here — except a guard
+# step proving it still compiles and passes its tests unchanged.
+#
+# The QEMU engine comes from the VM-Engine-Build workflow's rolling
+# `vm-engine-latest` release (run that one first, once).
+#
+# Run: Actions → Android-Build → Run workflow. Every dispatch
+# RE-PUBLISHES the single rolling `android-latest` prerelease (same tag,
+# fresh APK), exactly like the dev channels do with their builds.
+
+name: Android-Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: "VM engine release tag (from VM-Engine-Build)"
+        required: false
+        default: "vm-engine-latest"
+      tag:
+        description: "APK release tag (empty = android-latest)"
+        required: false
+        default: ""
+      notes:
+        description: "Release notes"
+        required: false
+        default: "New DeCypherTek.ai Android build — the headless Mobian VM app (terminal view, no VNC, loopback-only SSH)."
+
+concurrency:
+  group: Android-Build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  guard-and-test:
+    name: root crate unchanged + android core tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # The terminal AI itself: must keep building for regular Linux,
+      # byte for byte the same pipeline as before the android/ app.
+      - name: Root crate (the terminal AI) still green
+        run: |
+          cargo fmt --check
+          cargo clippy -- -D warnings
+          cargo test
+
+      # The new Android core: same gates.
+      - name: Android core gates
+        working-directory: android/core
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+  build-apk:
+    name: build APK (arm64)
+    needs: guard-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "ndk;27.2.12479018 platforms;android-35 build-tools;35.0.0"
+
+      - name: Locate the NDK
+        run: |
+          NDK="$(ls -d "$ANDROID_HOME"/ndk/* | sort | tail -n1)"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+      - name: Install Rust + cargo-ndk
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Check the VM engine release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENGINE_TAG: ${{ github.event.inputs.engine_tag }}
+        run: |
+          gh release view "$ENGINE_TAG" >/dev/null \
+            || { echo "::error::engine release '$ENGINE_TAG' not found — run the VM-Engine-Build workflow first"; exit 1; }
+          gh release download "$ENGINE_TAG" --pattern 'libqemu-arm64-v8a.so' --pattern 'libedk2-arm64.fd' --pattern 'libedk2-vars.fd' --dir engine
+
+      - name: Build the APK
+        run: |
+          bash android/scripts/build-android.sh \
+            --engine-dir engine \
+            --split-per-abi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: decyphertek-android
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish rolling APK release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          [[ -n "$TAG" ]] || TAG="android-latest"
+          NOTES="$(cat <<'EOF'
+          ${{ github.event.inputs.notes }}
+          EOF
+          )"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" dist/* \
+            --title "DeCypherTek.ai Android $TAG" \
+            --notes "$NOTES" \
+            --prerelease

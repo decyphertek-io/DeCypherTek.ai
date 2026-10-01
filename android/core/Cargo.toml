@@ -1,0 +1,47 @@
+[package]
+name = "decyphertek-core"
+version = "0.1.0"
+edition = "2021"
+description = "DeCypherTek.ai Android core — QEMU/Mobian VM lifecycle, SSH terminal transport, first-launch installer and the app-lock keystore, as one Rust cdylib the Flutter app loads."
+license = "MIT"
+repository = "https://github.com/decyphertek-io/DeCypherTek.ai"
+publish = false
+
+# Standalone on purpose: the terminal AI at the repo root (src/, Cargo.toml)
+# is a separate crate that keeps building for regular Linux exactly as
+# before. This crate is built only by the Android pipeline (cargo-ndk).
+[workspace]
+
+[lib]
+name = "decyphertek_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "fs"] }
+# ring backend: the only realistic choice for NDK cross-compiles
+# (aws-lc-rs drags cmake + a C toolchain into the Android build).
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+# russh re-exports ssh-key but does not enable key generation; turning the
+# feature on here unifies with russh's copy (same version), so
+# russh::keys::PrivateKey gains PrivateKey::random.
+ssh-key = { version = "=0.7.0-rc.11", features = ["rand_core", "ed25519"] }
+rand_core = "0.10"
+aes-gcm = "0.10"
+argon2 = "0.5"
+getrandom = "0.2"
+ureq = { version = "2.10", features = ["json"] }
+sha2 = "0.10"
+base64 = "0.22"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+strip = true
+opt-level = "s"
+codegen-units = 1

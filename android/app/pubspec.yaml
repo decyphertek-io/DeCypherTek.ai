@@ -1,0 +1,28 @@
+name: decyphertek_ai
+description: >-
+  DeCypherTek.ai for Android — a headless Mobian VM (QEMU) with the
+  terminal AI inside, reached over localhost-only SSH. No VNC, no exposed
+  ports.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The terminal emulator widget: renders the SSH PTY, encodes keystrokes.
+  xterm: ^4.0.0
+  # C-ABI bindings to libdecyphertek_core.so (the Rust core).
+  ffi: ^2.1.0
+  # App-private storage for the lock file, settings and the VM's qcow2.
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
