@@ -1,26 +1,40 @@
 # DeCypherTek.ai — Android APK build (manual dispatch).
 #
-# Builds the Flutter + Rust Android app (android/) SEPARATELY from the
-# terminal AI: the repo root's Rust crate is built by its own pipelines
-# (Prod-Build / dev channels) and is never touched here — except a guard
-# step proving it still compiles and passes its tests unchanged.
+# ONE workflow for the whole Android app, engine included:
 #
-# The QEMU engine comes from the VM-Engine-Build workflow's rolling
-# `vm-engine-latest` release (run that one first, once).
+#   * The QEMU VM engine (libqemu.so + EDK2 firmware) is behind an
+#     actions/cache keyed on the QEMU version + NDK version + build
+#     script hash. Same version -> the cached engine is restored in
+#     seconds and nothing rebuilds. Bump `qemu_version` (input, or the
+#     default below) -> key changes -> the composite action
+#     (.github/actions/build-qemu-engine) builds the new engine once
+#     and re-caches it. `rebuild_engine: true` forces a fresh build in
+#     this run for debugging (the cache only rolls over via a version
+#     bump or script change — that is the "new version" trigger).
 #
-# Run: Actions → Android-Build → Run workflow. Every dispatch
-# RE-PUBLISHES the single rolling `android-latest` prerelease (same tag,
-# fresh APK), exactly like the dev channels do with their builds.
+#   * The Flutter + Rust app itself builds every dispatch, after a
+#     guard step proving the repo-root terminal AI still compiles and
+#     passes its tests unchanged (it is not built for Android here —
+#     the repo-root crate keeps building for regular Linux through its
+#     own Prod-Build / dev pipelines).
+#
+# Every dispatch RE-PUBLISHES the single rolling `android-latest`
+# prerelease (same tag, fresh APK), like the dev channels do.
 
 name: Android-Build
 
 on:
   workflow_dispatch:
     inputs:
-      engine_tag:
-        description: "VM engine release tag (from VM-Engine-Build)"
+      qemu_version:
+        description: "QEMU engine version (bump = rebuild the engine, same = reuse the cache)"
         required: false
-        default: "vm-engine-latest"
+        default: "9.2.0"
+      rebuild_engine:
+        description: "Force a fresh engine build this run (debugging; cache rolls over only on version/script change)"
+        type: boolean
+        required: false
+        default: false
       tag:
         description: "APK release tag (empty = android-latest)"
         required: false
@@ -36,6 +50,9 @@ concurrency:
 
 permissions:
   contents: write
+
+env:
+  NDK_VERSION: "27.2.12479018"
 
 jobs:
   guard-and-test:
@@ -70,7 +87,7 @@ jobs:
     name: build APK (arm64)
     needs: guard-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -88,11 +105,12 @@ jobs:
       - name: Install Android SDK + NDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "ndk;27.2.12479018 platforms;android-35 build-tools;35.0.0"
+          packages: "ndk;${{ env.NDK_VERSION }} platforms;android-35 build-tools;35.0.0"
 
-      - name: Locate the NDK
+      - name: Pin the NDK (never guess — runner images ship their own)
         run: |
-          NDK="$(ls -d "$ANDROID_HOME"/ndk/* | sort | tail -n1)"
+          NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
+          test -d "$NDK" || { echo "::error::NDK $NDK_VERSION missing"; exit 1; }
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
 
       - name: Install Rust + cargo-ndk
@@ -103,15 +121,37 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Check the VM engine release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENGINE_TAG: ${{ github.event.inputs.engine_tag }}
+      # ---- The VM engine: cache first, build only on change ----
+      - name: Compute engine cache key
+        id: engine_key
         run: |
-          gh release view "$ENGINE_TAG" >/dev/null \
-            || { echo "::error::engine release '$ENGINE_TAG' not found — run the VM-Engine-Build workflow first"; exit 1; }
-          gh release download "$ENGINE_TAG" --pattern 'libqemu-arm64-v8a.so' --pattern 'libedk2-arm64.fd' --pattern 'libedk2-vars.fd' --dir engine
+          SCRIPT_HASH="$(sha256sum android/scripts/build-qemu-android.sh | cut -c1-12)"
+          echo "key=qemu-aarch64-${{ inputs.qemu_version }}-ndk-${NDK_VERSION}-v1-${SCRIPT_HASH}" >> "$GITHUB_OUTPUT"
+          echo "qemu=${{ inputs.qemu_version }}" >> "$GITHUB_OUTPUT"
 
+      - name: Restore the QEMU engine (same version = same engine)
+        id: engine_cache
+        uses: actions/cache@v4
+        with:
+          path: engine
+          key: ${{ steps.engine_key.outputs.key }}
+
+      - name: Build the QEMU engine (only on version bump / miss / force)
+        if: steps.engine_cache.outputs.cache-hit != 'true' || inputs.rebuild_engine
+        uses: ./.github/actions/build-qemu-engine
+        with:
+          qemu-version: ${{ inputs.qemu_version }}
+          ndk-version: ${{ env.NDK_VERSION }}
+          api: "28"
+          out: engine
+
+      - name: Engine present?
+        run: |
+          test -f engine/libqemu-arm64-v8a.so \
+            || { echo "::error::engine artifacts missing"; exit 1; }
+          ls -lh engine/
+
+      # ---- The APK ----
       - name: Build the APK
         run: |
           bash android/scripts/build-android.sh \
@@ -129,10 +169,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
+          TAG="${{ inputs.tag }}"
           [[ -n "$TAG" ]] || TAG="android-latest"
           NOTES="$(cat <<'EOF'
-          ${{ github.event.inputs.notes }}
+          ${{ inputs.notes }}
           EOF
           )"
           if gh release view "$TAG" >/dev/null 2>&1; then

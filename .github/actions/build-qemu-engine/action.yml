@@ -1,0 +1,63 @@
+# Composite action: cross-compile the QEMU aarch64 Android engine.
+#
+# NOT run on every APK build — Android-Build wraps this in an
+# actions/cache keyed on the QEMU version (+ NDK version + build-script
+# hash), so it only executes when there's actually a new version to
+# build, a forced rebuild, or a cache miss. Otherwise the previous
+# engine is restored in seconds and this action never runs.
+name: 'Build QEMU Android engine'
+description: >-
+  Cross-compiles the QEMU aarch64 system emulator for Android (headless,
+  VNC-free) plus EDK2 ArmVirt firmware. Slow (~45-60 min) — prefer the
+  cache in Android-Build; this runs only on version bumps.
+
+inputs:
+  qemu-version:
+    description: 'QEMU version to build (cache key includes it — bump to rebuild)'
+    required: false
+    default: '9.2.0'
+  ndk-version:
+    description: 'Pinned Android NDK version'
+    required: false
+    default: '27.2.12479018'
+  api:
+    description: 'Android API level to target'
+    required: false
+    default: '28'
+  out:
+    description: 'Output directory for the engine artifacts'
+    required: false
+    default: 'engine'
+
+runs:
+  using: composite
+  steps:
+    - name: Install build tools
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          meson ninja-build python3 pkg-config curl xz-utils git
+
+    # Pin the NDK explicitly. Never 'ls ndk/* | tail -1' — runner images
+    # ship their own newer NDK and picking it nondeterministically was
+    # one of the original bugs.
+    - name: Install the pinned NDK
+      shell: bash
+      run: |
+        SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+        echo y | "$SDKMGR" "ndk;${{ inputs.ndk-version }}" >/dev/null 2>&1
+        test -d "$ANDROID_HOME/ndk/${{ inputs.ndk-version }}" \
+          || { echo "::error::NDK ${{ inputs.ndk-version }} not installed"; exit 1; }
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ inputs.ndk-version }}" >> "$GITHUB_ENV"
+
+    - name: Build QEMU + EDK2 firmware
+      shell: bash
+      run: |
+        bash android/scripts/build-qemu-android.sh \
+          --ndk "$ANDROID_NDK_HOME" \
+          --qemu-version "${{ inputs.qemu-version }}" \
+          --api "${{ inputs.api }}" \
+          --out "${{ inputs.out }}" \
+          --edk2 download

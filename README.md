@@ -170,10 +170,11 @@ SSH key and settings with AES-256-GCM + Argon2id (the same envelope as
 the vault) and unlocks the app on every launch. Use the same password
 for the vault wizard and one password runs the whole system.
 
-Pipelines (manual dispatch, like Prod-Build): **VM-Engine-Build**
-cross-compiles QEMU for Android → the rolling `vm-engine-latest`
-release; **Android-Build** gates + builds the APK → the rolling
-`android-latest` prerelease. Details: [`.github/workflows/instructions.md`](.github/workflows/instructions.md)
+Pipelines (manual dispatch, like Prod-Build): **one** Android-Build
+workflow does it all — it gates (root crate unchanged + core tests),
+reuses the cached QEMU engine (rebuilt only when the QEMU version
+bumps), and publishes the rolling `android-latest` prerelease.
+Details: [`.github/workflows/instructions.md`](.github/workflows/instructions.md)
 and [`android/README.md`](android/README.md).
 
 ## Releases

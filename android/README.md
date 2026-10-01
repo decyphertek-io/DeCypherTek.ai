@@ -96,25 +96,32 @@ that holds the SSH key, so no password — no app, no VM, no data.
 
 ## Building
 
-Everything is manual-dispatch CI, separate from the terminal AI's
-pipelines (see `.github/workflows/instructions.md`):
+One manual-dispatch workflow, engine included:
+**Actions → Android-Build → Run workflow** (see
+`.github/workflows/instructions.md`).
 
-1. **VM-Engine-Build** — cross-compiles QEMU (+EDK2 firmware) for
-   Android arm64 → the rolling `vm-engine-latest` release. Run rarely.
-2. **Android-Build** — gates (root crate unchanged + core tests), then
-   builds the APK → the rolling `android-latest` prerelease.
+- The **QEMU engine** (the C emulator + EDK2 firmware, bundled into the
+  APK as `libqemu.so`) is built by the composite action
+  `.github/actions/build-qemu-engine` — but **only when it must be**:
+  its output sits behind an `actions/cache` keyed on the QEMU version +
+  NDK version + build-script hash. Same `qemu_version` → cached engine
+  restored in seconds, no rebuild. Bump `qemu_version` on the dispatch
+  form → the engine is built once and re-cached. (`rebuild_engine:
+  true` forces a fresh build for debugging.)
+- The **APK** then builds every dispatch and re-publishes the rolling
+  `android-latest` prerelease.
 
 Locally:
 
 ```bash
-# engine (once per engine change)
+# engine (same script the action calls)
 android/scripts/build-qemu-android.sh --ndk $ANDROID_NDK_HOME
 
 # minimal Mobian image (root, on Debian) — attach to a release
 sudo android/scripts/build-mobian-image.sh
 
 # APK
-android/scripts/build-android.sh --engine-release vm-engine-latest
+android/scripts/build-android.sh --engine-dir engine
 ```
 
 The image build script is the one artifact the CI does not produce
