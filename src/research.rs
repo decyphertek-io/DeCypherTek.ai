@@ -241,4 +241,51 @@ mod tests {
         assert!(normalize_name("../evil").is_err());
         assert!(normalize_name("").is_err());
     }
+
+    #[test]
+    fn shipped_sources_profile_parses() {
+        let body = include_str!("../assets/wiki/research/sources.yml");
+        let (name, description, sites) = parse(body)
+            .expect("the hardcoded sources.yml must stay parseable by the profile parser");
+        assert_eq!(name, "sources");
+        assert!(!description.is_empty());
+        assert!(
+            sites.len() >= 28,
+            "archival sources went missing: {sites:?}"
+        );
+        for must in [
+            "https://archive.org",
+            "https://catalog.archives.gov",
+            "https://www.federalregister.gov",
+            "https://catalog.data.gov",
+            "https://api.congress.gov",
+            "https://api.govinfo.gov",
+            "https://history.state.gov",
+            "https://github.com/DenisSergeevitch/UFO-USA",
+            "https://www.cia.gov",
+            "https://discovery.nationalarchives.gov.uk",
+            "https://arxiv.org",
+            "https://api.crossref.org",
+            "https://api.semanticscholar.org",
+            "https://api.openalex.org",
+            "https://eutils.ncbi.nlm.nih.gov",
+            "https://ui.adsabs.harvard.edu",
+            "https://www.ebi.ac.uk",
+            "https://www.loc.gov",
+            "https://www.gutenberg.org",
+            "https://lab.history.columbia.edu",
+            "https://nsarchive.gwu.edu",
+            "https://www.industrydocuments.ucsf.edu",
+            "https://projects.propublica.org",
+            "https://docquery.fec.gov",
+            "https://www.theblackvault.com",
+            "https://ovniarchive.com",
+        ] {
+            assert!(sites.contains(&must.to_string()), "{must} missing");
+        }
+        // the profile round-trips through the same serializer /setup uses,
+        // exactly like a user-created one.
+        let (n2, _d2, s2) = parse(&serialize(&name, &description, &sites)).unwrap();
+        assert_eq!((n2.as_str(), s2), (name.as_str(), sites));
+    }
 }

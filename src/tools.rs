@@ -63,7 +63,7 @@ pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
     if cfg.tool_web_search || cfg.is_unleashed() {
         out.push(tool_spec(
             "web_search",
-            "Search the web (DuckDuckGo results + Wikipedia + Hacker News) for research. Returns titles, URLs and snippets; use web_fetch on the best URL to read the page.",
+            "Search the web (DuckDuckGo results + Wikipedia + Hacker News + Internet Archive) for research. Returns titles, URLs and snippets; use web_fetch on the best URL to read the page.",
             json_obj(&[("query", "string")]),
         ));
         out.push(tool_spec(
@@ -631,12 +631,80 @@ fn arxiv_search(agent: &ureq::Agent, query: &str, limit: usize) -> Vec<WebHit> {
         .collect()
 }
 
+/// Collapse whitespace and truncate at a char boundary with ellipsis.
+fn clip(s: &str, max: usize) -> String {
+    let t: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if t.len() <= max {
+        t
+    } else {
+        let mut end = max;
+        while !t.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &t[..end])
+    }
+}
+
+/// Internet Archive via its keyless metadata query API (archive.org).
+/// advancedsearch.php needs no key and answers JSON at
+/// /response/docs[] with identifier/title/description per hit; the
+/// readable item lives at https://archive.org/details/<identifier>.
+fn archive_search(agent: &ureq::Agent, query: &str, limit: usize) -> Vec<WebHit> {
+    let url = format!(
+        "https://archive.org/advancedsearch.php?q={}&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=description&rows={}&page=1&output=json",
+        url_encode(query),
+        limit
+    );
+    let resp = agent
+        .get(&url)
+        .timeout(Duration::from_secs(20))
+        .set("User-Agent", "DeCypherTek/0.1")
+        .call();
+    let body = match resp {
+        Ok(r) => read_body_capped(r, 500_000).unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return Vec::new();
+    };
+    let Some(docs) = v.pointer("/response/docs").and_then(|x| x.as_array()) else {
+        return Vec::new();
+    };
+    // Solr fields come back as strings or arrays depending on the item.
+    fn field_text(doc: &serde_json::Value, key: &str) -> String {
+        match doc.get(key) {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Array(a)) => a
+                .iter()
+                .filter_map(|x| x.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => String::new(),
+        }
+    }
+    docs.iter()
+        .filter_map(|d| {
+            let identifier = d.get("identifier").and_then(|x| x.as_str())?;
+            let title = field_text(d, "title");
+            if title.is_empty() {
+                return None;
+            }
+            Some(WebHit {
+                url: format!("https://archive.org/details/{identifier}"),
+                title: format!("archive.org: {title}"),
+                snippet: clip(&field_text(d, "description"), 300),
+            })
+        })
+        .collect()
+}
+
 /// Keyless web research, multi-source. With a research profile active
 /// (@research <name>.yml), searching is locked to that profile's sites:
 /// `site:`-scoped queries plus the native APIs of sites that have one
-/// (arxiv.org, news.ycombinator.com, wikipedia.org), all filtered to
-/// the profile's hosts. Without a profile it is a general search:
-/// DuckDuckGo results + Wikipedia + Hacker News.
+/// (archive.org, arxiv.org, news.ycombinator.com, wikipedia.org), all
+/// filtered to the profile's hosts. Without a profile it is a general
+/// search: DuckDuckGo results + Wikipedia + Hacker News +
+/// Internet Archive.
 pub fn web_search(ctx: &ToolCtx, query: &str) -> String {
     let mut hits: Vec<WebHit> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
@@ -660,7 +728,11 @@ pub fn web_search(ctx: &ToolCtx, query: &str) -> String {
         // Native APIs first — keyless and reliable for their hosts.
         for site in &ctx.research_sites {
             let host = host_of(site);
-            if host == "arxiv.org" || host.ends_with(".arxiv.org") {
+            if host == "archive.org" || host.ends_with(".archive.org") {
+                for h in archive_search(&ctx.http, query, 3) {
+                    push(&mut hits, &mut seen, &ctx.research_sites, h);
+                }
+            } else if host == "arxiv.org" || host.ends_with(".arxiv.org") {
                 for h in arxiv_search(&ctx.http, query, 3) {
                     push(&mut hits, &mut seen, &ctx.research_sites, h);
                 }
@@ -700,11 +772,14 @@ pub fn web_search(ctx: &ToolCtx, query: &str) -> String {
         for h in hn_search(&ctx.http, query, 3) {
             push(&mut hits, &mut seen, &[], h);
         }
+        for h in archive_search(&ctx.http, query, 3) {
+            push(&mut hits, &mut seen, &[], h);
+        }
         if hits.is_empty() {
             return "No results found (or network unreachable).".to_string();
         }
         if ddg_count == 0 {
-            note = "(DuckDuckGo results unavailable from this network — answering from Wikipedia + Hacker News)\n\n".to_string();
+            note = "(DuckDuckGo results unavailable from this network — answering from Wikipedia, Hacker News and Internet Archive)\n\n".to_string();
         }
     }
 

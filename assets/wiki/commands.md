@@ -29,13 +29,24 @@ A research profile is a small YAML file in the wiki's `research/` folder:
       - https://arxiv.org
       - https://en.wikipedia.org
 
-`@research rag-chat.yml <topic>` runs the research with `web_search` and
+`@research <name>.yml <topic>` runs the research with `web_search` and
 `web_fetch` restricted to exactly those sites (site-scoped queries plus
-the keyless native APIs of arxiv.org, news.ycombinator.com and
-wikipedia.org when they are in the profile). Create or change profiles
-in `@setup` — a new one is saved into `research/` automatically. A
-baseline example (`rag-chat.yml`) ships with the agent; view it via
-`@wiki read research/rag-chat.yml`.
+the keyless native APIs of archive.org, arxiv.org, news.ycombinator.com
+and wikipedia.org when they are in the profile). Create or change
+profiles in `@setup` — a new one is saved into `research/`
+automatically. Two baselines ship inside the binary: the `rag-chat.yml`
+example, viewable via `@wiki read research/rag-chat.yml`, and the
+hardcoded `sources.yml` — public archival research databases (Internet
+Archive, NARA, Federal Register, Data.gov, Congress.gov, GovInfo,
+FRUS, the Pentagon UAP mirror, the CIA FOIA Reading Room, the UK
+National Archives, arXiv, Crossref, Semantic Scholar, OpenAlex,
+PubMed, NASA ADS, Europe PMC, the Library of Congress, Project
+Gutenberg, Columbia History Lab, the National Security Archive, the
+UCSF Industry Documents Library, ProPublica Nonprofit Explorer, the
+FEC, the Black Vault and the OVNI Archive) — so
+`@research sources.yml <topic>` digs into the world's archives out of
+the box; Internet Archive answers natively through its keyless
+metadata query API (archive.org/advancedsearch.php).
 
 ## @upload — your docs into the vault (info/)
 
