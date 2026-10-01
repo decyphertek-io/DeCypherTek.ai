@@ -37,12 +37,22 @@ pub const BASELINE_FILES: &[(&str, &str)] = &[
 /// holds the docs you upload with @upload. Both seal into the vault.
 pub const FOLDERS: &[&str] = &["research", "info"];
 
-/// Baseline research profile shipped inside the binary — the example
-/// `@research rag-chat.yml` runs against out of the box.
-pub const BASELINE_RESEARCH_PROFILE: (&str, &str) = (
-    "rag-chat.yml",
-    include_str!("../assets/wiki/research/rag-chat.yml"),
-);
+/// Baseline research profiles shipped inside the binary: the example
+/// `@research rag-chat.yml` runs against out of the box, plus the
+/// hardcoded `sources.yml` — public archival research databases
+/// (Internet Archive, NARA, Federal Register, Congress.gov, GovInfo,
+/// FRUS, CIA Reading Room, UK National Archives, arXiv, Crossref,
+/// Black Vault, …) so `@research sources.yml <topic>` works on day one.
+pub const BASELINE_RESEARCH_PROFILES: &[(&str, &str)] = &[
+    (
+        "rag-chat.yml",
+        include_str!("../assets/wiki/research/rag-chat.yml"),
+    ),
+    (
+        "sources.yml",
+        include_str!("../assets/wiki/research/sources.yml"),
+    ),
+];
 
 /// Write the shipped baseline docs into the vault's wiki dir (idempotent).
 pub fn write_baseline(p: &Paths) -> Result<()> {
@@ -56,12 +66,12 @@ pub fn write_baseline(p: &Paths) -> Result<()> {
     for folder in FOLDERS {
         std::fs::create_dir_all(p.wiki_dir.join(folder))?;
     }
-    let profile = p
-        .wiki_dir
-        .join("research")
-        .join(BASELINE_RESEARCH_PROFILE.0);
-    if !profile.exists() {
-        std::fs::write(profile, BASELINE_RESEARCH_PROFILE.1)?;
+    let research = p.wiki_dir.join("research");
+    for (file, body) in BASELINE_RESEARCH_PROFILES {
+        let profile = research.join(file);
+        if !profile.exists() {
+            std::fs::write(profile, body)?;
+        }
     }
     Ok(())
 }
@@ -193,5 +203,35 @@ mod tests {
         assert_eq!(split_folder_entry("plain-page"), None);
         assert!(sanitize_folder_file("My Doc.PDF").unwrap() == "my-doc.pdf");
         assert!(sanitize_folder_file("../x").is_err());
+    }
+
+    #[test]
+    fn baseline_ships_every_research_profile_idempotently() {
+        let root = std::env::temp_dir().join(format!("dct-wiki-baseline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = Paths::new(&root);
+        write_baseline(&paths).unwrap();
+        for (file, body) in BASELINE_RESEARCH_PROFILES {
+            let path = paths.wiki_dir.join("research").join(file);
+            let written = std::fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("{file} missing after write_baseline"));
+            assert_eq!(written, *body);
+        }
+        // second run must not touch what already exists (a user may edit)
+        let suspect = paths.wiki_dir.join("research").join("sources.yml");
+        std::fs::write(
+            &suspect,
+            "name: sources\ndescription: edited\nsites:\n  - https://archive.org\n",
+        )
+        .unwrap();
+        write_baseline(&paths).unwrap();
+        assert!(
+            std::fs::read_to_string(&suspect)
+                .unwrap()
+                .contains("edited"),
+            "write_baseline must never overwrite an existing profile"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

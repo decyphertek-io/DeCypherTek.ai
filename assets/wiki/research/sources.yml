@@ -1,0 +1,114 @@
+# DeCypherTek research profile — used by /research sources.yml <topic>
+# Web searching during the run is locked to these sites (hosts or URLs):
+# site-scoped queries plus the keyless native APIs of the sites that
+# have one. A specialized archival-research source list — government,
+# declassified, academic, historical and investigative archives.
+# Create your own with /setup, or edit this file and re-seal the vault.
+name: sources
+description: public archival research databases — government, declassified, academic, historical and investigative archives
+sites:
+  # — government & declassified archives —
+
+  # Internet Archive — books, films, audio, software; its keyless metadata
+  # API (archive.org/advancedsearch.php?q=<query>&fl[]=identifier&fl[]=title
+  # &rows=5&output=json) is queried natively by the agent when this is active.
+  - https://archive.org
+
+  # National Archives (NARA) — catalog.archives.gov; API v2 docs at
+  # https://catalog.archives.gov/api/v2/api-docs
+  - https://catalog.archives.gov
+
+  # Federal Register — keyless JSON API at
+  # https://www.federalregister.gov/api/v1/documents.json?conditions[term]=<query>
+  - https://www.federalregister.gov
+
+  # Data.gov — federal open-data catalog browse
+  - https://catalog.data.gov
+
+  # Congressional Record / Congress.gov; the v3 API (api.congress.gov)
+  # needs a free api.data.gov key
+  - https://www.congress.gov
+  - https://api.congress.gov
+
+  # GovInfo (GPO) — official federal documents; API docs at
+  # https://www.govinfo.gov/api/ (api.govinfo.gov needs a free key)
+  - https://www.govinfo.gov
+  - https://api.govinfo.gov
+
+  # State Department — FRUS, Foreign Relations of the United States
+  - https://history.state.gov
+
+  # Pentagon UAP files — GitHub mirror of the released AARO document set
+  - https://github.com/DenisSergeevitch/UFO-USA
+
+  # CIA FOIA Reading Room (CREST) — declassified document database
+  - https://www.cia.gov
+
+  # UK National Archives — Discovery catalogue and API
+  # (https://discovery.nationalarchives.gov.uk/api/ — records, details)
+  - https://discovery.nationalarchives.gov.uk
+
+  # — academic & scientific research —
+
+  # arXiv preprints — queried natively through the keyless export API
+  # (export.arxiv.org/api); keep the bare arxiv.org host so both match
+  - https://arxiv.org
+
+  # Crossref — keyless REST: https://api.crossref.org/works?query=<terms>
+  - https://api.crossref.org
+
+  # Semantic Scholar — keyless (rate-limited):
+  # https://api.semanticscholar.org/graph/v1/paper/search?query=<terms>
+  - https://api.semanticscholar.org
+
+  # OpenAlex — keyless: https://api.openalex.org/works?search=<terms>
+  - https://api.openalex.org
+
+  # PubMed — search UI plus keyless E-utilities
+  # (https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=<query>)
+  - https://pubmed.ncbi.nlm.nih.gov
+  - https://eutils.ncbi.nlm.nih.gov
+
+  # NASA ADS — bibliographic search; the export API needs a free token
+  # (https://ui.adsabs.harvard.edu/help/api/)
+  - https://ui.adsabs.harvard.edu
+
+  # Europe PMC — keyless REST:
+  # https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=<terms>&format=json
+  - https://www.ebi.ac.uk
+  - https://europepmc.org
+
+  # — historical documents & libraries —
+  # (the Internet Archive metadata host archive.org is listed above)
+
+  # Library of Congress — digital collections, item pages (www.loc.gov/item/)
+  - https://www.loc.gov
+
+  # Project Gutenberg — public-domain books
+  - https://www.gutenberg.org
+
+  # Columbia History Lab
+  - https://lab.history.columbia.edu
+
+  # National Security Archive (GWU) — declassifications and documents
+  # (nsarchive.gwu.edu/declassifications and nsarchive.gwu.edu/documents)
+  - https://nsarchive.gwu.edu
+
+  # UCSF Industry Documents Library — tobacco, drug and chemical files
+  # (the bare host redirects here, so the www host is listed)
+  - https://www.industrydocuments.ucsf.edu
+
+  # — investigative & specialized archives —
+
+  # ProPublica Nonprofit Explorer — Sunlight Foundation archive, keyless
+  # API: https://projects.propublica.org/nonprofits/api/v2/search.json?q=<name>
+  - https://projects.propublica.org
+
+  # Federal Election Commission — electronic filings (docquery.fec.gov)
+  - https://docquery.fec.gov
+
+  # The Black Vault — UFO/FOIA document archive
+  - https://www.theblackvault.com
+
+  # OVNI Archive — international UFO case archive
+  - https://ovniarchive.com
