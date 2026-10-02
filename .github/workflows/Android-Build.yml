@@ -5,8 +5,12 @@
 # (Prod-Build / dev channels) and is never touched here — except a guard
 # step proving it still compiles and passes its tests unchanged.
 #
-# The QEMU engine comes from the VM-Engine-Build workflow's rolling
-# `vm-engine-latest` release (run that one first, once).
+# The QEMU VM engine is this workflow's own vm-engine job: it *reuses*
+# the artifacts of the rolling `vm-engine-latest` release when they are
+# current, and rebuilds them (same script, same rolling release, same
+# tag — replaced in place) when the release doesn't exist yet or is
+# outdated (QEMU version input changed, or build-qemu-android.sh
+# changed — engine-meta.txt carries both facts).
 #
 # Run: Actions → Android-Build → Run workflow. Every dispatch
 # RE-PUBLISHES the single rolling `android-latest` prerelease (same tag,
@@ -18,9 +22,18 @@ on:
   workflow_dispatch:
     inputs:
       engine_tag:
-        description: "VM engine release tag (from VM-Engine-Build)"
+        description: "VM engine release tag (reused, or rebuilt + republished)"
         required: false
         default: "vm-engine-latest"
+      qemu_version:
+        description: "QEMU version the engine must be (rebuild trigger)"
+        required: false
+        default: "9.2.0"
+      force_engine_rebuild:
+        description: "Rebuild the VM engine even if the release is current"
+        type: boolean
+        required: false
+        default: false
       tag:
         description: "APK release tag (empty = android-latest)"
         required: false
@@ -66,9 +79,123 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo test
 
+  vm-engine:
+    name: VM engine — reuse ${{ inputs.engine_tag }} if current, else rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      decision: ${{ steps.engine.outputs.decision }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build python3 pkg-config curl xz-utils git make pipx \
+            build-essential uuid-dev gcc-aarch64-linux-gnu acpica-tools
+          # apt's meson (1.3.2 on 24.04) is too old for QEMU >= 9.2
+          # (needs >= 1.5.0) — pin the newer one.
+          pipx install 'meson==1.6.1'
+
+      - name: Locate the NDK
+        run: |
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          [[ -n "$NDK" && -d "$NDK" ]] || NDK="$(ls -d "$ANDROID_HOME"/ndk/* | sort | tail -n1)"
+          [[ -n "$NDK" && -d "$NDK" ]] || { echo "::error::no Android NDK on the runner"; exit 1; }
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "NDK: $NDK"
+
+      # Reuse or rebuild? The published engine is reusable exactly when
+      # its engine-meta.txt matches what this dispatch would build:
+      # QEMU version + sha256 of the build script itself.
+      - name: Decide — reuse the published engine or rebuild?
+        id: engine
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENGINE_TAG: ${{ github.event.inputs.engine_tag }}
+          QEMU_VERSION: ${{ github.event.inputs.qemu_version }}
+          FORCE: ${{ github.event.inputs.force_engine_rebuild }}
+        run: |
+          want_qemu="qemu_version=$QEMU_VERSION"
+          want_rev="engine_revision=$(sha256sum android/scripts/build-qemu-android.sh | cut -d' ' -f1)"
+          decision="rebuild"
+          if [[ "$FORCE" == "true" ]]; then
+            echo "forced rebuild requested"
+          elif ! gh release view "$ENGINE_TAG" >/dev/null 2>&1; then
+            echo "engine release '$ENGINE_TAG' does not exist — first build"
+          else
+            if ! gh release view "$ENGINE_TAG" --json assets --jq '.assets[].name' \
+                 | grep -q '^libqemu-arm64-v8a\.so$'; then
+              echo "::error::release '$ENGINE_TAG' exists but is not a VM engine release — refusing to touch it"; exit 1
+            fi
+            if gh release download "$ENGINE_TAG" --pattern 'engine-meta.txt' --dir engine-check 2>/dev/null \
+               && grep -qxF "$want_qemu" engine-check/engine-meta.txt \
+               && grep -qxF "$want_rev" engine-check/engine-meta.txt; then
+              decision="reuse"
+              echo "release '$ENGINE_TAG' is current — reusing it as-is"
+            else
+              echo "release '$ENGINE_TAG' is outdated — rebuilding"
+            fi
+          fi
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+          echo "decision: $decision (want: $want_qemu, $want_rev)"
+
+      # ---- rebuild path -------------------------------------------------
+      - name: Build QEMU + EDK2 for Android
+        if: steps.engine.outputs.decision == 'rebuild'
+        run: |
+          bash android/scripts/build-qemu-android.sh \
+            --ndk "$ANDROID_NDK_HOME" \
+            --qemu-version "${{ github.event.inputs.qemu_version }}" \
+            --out engine --edk2 build
+
+      - name: Checksum
+        if: steps.engine.outputs.decision == 'rebuild'
+        run: |
+          cd engine
+          sha256sum libqemu-arm64-v8a.so libedk2-arm64.fd libedk2-vars.fd engine-meta.txt > checksums.txt
+          cat checksums.txt
+          ls -lh
+
+      - name: Publish rolling engine release
+        if: steps.engine.outputs.decision == 'rebuild'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.engine_tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" engine/checksums.txt engine/engine-meta.txt \
+            engine/libqemu-arm64-v8a.so engine/libedk2-arm64.fd engine/libedk2-vars.fd \
+            --title "DeCypherTek.ai VM engine $TAG" \
+            --notes "QEMU ${{ github.event.inputs.qemu_version }} aarch64 system emulator for Android (headless, VNC-free) + EDK2 ArmVirt firmware, built from source. Consumed by the Android-Build workflow and the app's image.ensure." \
+            --prerelease
+
+      # ---- reuse path ---------------------------------------------------
+      - name: Reuse — download the published engine
+        if: steps.engine.outputs.decision != 'rebuild'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.event.inputs.engine_tag }}" --dir engine \
+            --pattern 'libqemu-arm64-v8a.so' --pattern 'libedk2-arm64.fd' \
+            --pattern 'libedk2-vars.fd' --pattern 'engine-meta.txt' \
+            --pattern 'checksums.txt'
+          cat engine/engine-meta.txt
+          ls -lh engine
+
+      - name: Engine artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-engine
+          path: engine/
+          if-no-files-found: error
+
   build-apk:
     name: build APK (arm64)
-    needs: guard-and-test
+    needs: [guard-and-test, vm-engine]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -103,14 +230,11 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Check the VM engine release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ENGINE_TAG: ${{ github.event.inputs.engine_tag }}
-        run: |
-          gh release view "$ENGINE_TAG" >/dev/null \
-            || { echo "::error::engine release '$ENGINE_TAG' not found — run the VM-Engine-Build workflow first"; exit 1; }
-          gh release download "$ENGINE_TAG" --pattern 'libqemu-arm64-v8a.so' --pattern 'libedk2-arm64.fd' --pattern 'libedk2-vars.fd' --dir engine
+      - name: Fetch the VM engine artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vm-engine
+          path: engine
 
       - name: Build the APK
         run: |
@@ -128,6 +252,7 @@ jobs:
       - name: Publish rolling APK release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DECISION: ${{ needs.vm-engine.outputs.decision }}
         run: |
           TAG="${{ github.event.inputs.tag }}"
           [[ -n "$TAG" ]] || TAG="android-latest"
@@ -135,6 +260,9 @@ jobs:
           ${{ github.event.inputs.notes }}
           EOF
           )"
+          NOTES="$NOTES
+
+          VM engine: $DECISION (release ${{ github.event.inputs.engine_tag }})."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi

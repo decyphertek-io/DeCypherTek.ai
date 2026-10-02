@@ -99,15 +99,19 @@ that holds the SSH key, so no password — no app, no VM, no data.
 Everything is manual-dispatch CI, separate from the terminal AI's
 pipelines (see `.github/workflows/instructions.md`):
 
-1. **VM-Engine-Build** — cross-compiles QEMU (+EDK2 firmware) for
-   Android arm64 → the rolling `vm-engine-latest` release. Run rarely.
-2. **Android-Build** — gates (root crate unchanged + core tests), then
-   builds the APK → the rolling `android-latest` prerelease.
+**Android-Build** is the whole pipeline: the gates (root crate
+unchanged + core tests), then its `vm-engine` job cross-compiles QEMU
+(+ EDK2 firmware, from source) for Android arm64 → the rolling
+`vm-engine-latest` release, **and after that only reuses that release**:
+the engine is rebuilt solely when the release doesn't exist or its
+`engine-meta.txt` no longer matches (different QEMU version, or a
+changed `build-qemu-android.sh`). The APK is then built and published
+as the rolling `android-latest` prerelease.
 
 Locally:
 
 ```bash
-# engine (once per engine change)
+# engine (once per engine change; what the vm-engine job runs)
 android/scripts/build-qemu-android.sh --ndk $ANDROID_NDK_HOME
 
 # minimal Mobian image (root, on Debian) — attach to a release
