@@ -253,9 +253,12 @@ sed -i "/hostmem-shm\.c\|hostmem-memfd\.c\|host_iommu_device\.c/d" \
 mkdir -p qemu-build
 (
   cd qemu-build
+  # PKG_CONFIG must be exported or configure falls back to
+  # ${cross_prefix}pkg-config — a binary that doesn't exist — and meson
+  # then can't resolve glib/pixman for the host machine at all.
   export NM="$TOOLCHAIN/llvm-nm" READELF="$TOOLCHAIN/llvm-readelf" \
          OBJCOPY="$TOOLCHAIN/llvm-objcopy" DLLTOOL="$TOOLCHAIN/llvm-dlltool" \
-         LD="$TOOLCHAIN/ld.lld" AS="$CC"
+         LD="$TOOLCHAIN/ld.lld" AS="$CC" CXX="${CC}++" PKG_CONFIG="pkg-config"
   ../"qemu-$QEMU_VERSION"/configure \
     --cross-prefix="aarch64-linux-android${API}-" \
     --cpu=aarch64 --target-list=aarch64-softmmu \
