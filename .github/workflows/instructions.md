@@ -13,20 +13,22 @@ own `dev-<name>` branch and their own prerelease channel.
 | `dev-usaginotsuki.yml` | push + manual | `dev-usaginotsuki` | rolling prerelease `v<version>-dev-usaginotsuki` |
 | `Prod-Build.yml` | manual | `main` | stable release `v<version>` (`releases/latest`), re-published fresh every dispatch |
 | `sonarqube.yml` | manual (`workflow_dispatch`) | whichever branch you dispatch it on | security findings committed to `appsec/` |
-| `VM-Engine-Build.yml` | manual (`workflow_dispatch`) | any (builds `android/scripts`) | rolling prerelease `vm-engine-latest`: the QEMU aarch64 Android engine (`libqemu-arm64-v8a.so`) + EDK2 firmware |
-| `Android-Build.yml` | manual (`workflow_dispatch`) | any (builds `android/`) | rolling prerelease `android-latest`: the DeCypherTek.ai APK (Flutter + Rust) |
+| `Android-Build.yml` | manual (`workflow_dispatch`) | any (builds `android/`) | rolling prereleases `android-latest` (the DeCypherTek.ai APK) and `vm-engine-latest` (the QEMU aarch64 Android engine + EDK2 firmware) |
 
-The two Android workflows are **separate pipelines on purpose**: the
-terminal AI (repo root, plain Rust crate) keeps building through
-Prod-Build / the dev channels for regular Linux unchanged — the
-Android-Build workflow even has a guard step that runs the root
-crate's `cargo fmt/clippy/test` to prove nothing regressed. Its first
-step after the gates is downloading the engine from
-`vm-engine-latest`, so **run VM-Engine-Build once first** (and again
-only when the engine must change). The Mobian VM image itself is
-built by `android/scripts/build-mobian-image.sh` on a root Debian
-machine (needs nbd + chroot) and attached to a release manually — the
-app's first-launch downloader pulls it from there.
+The Android pipeline is **separate from the terminal AI on purpose**:
+the repo root's Rust crate keeps building through Prod-Build / the dev
+channels for regular Linux unchanged — the Android-Build workflow even
+has a guard step that runs the root crate's `cargo fmt/clippy/test` to
+prove nothing regressed. Its `vm-engine` job owns the QEMU engine as
+well: it **reuses** the rolling `vm-engine-latest` release when its
+`engine-meta.txt` proves the published engine matches this branch
+(the wanted QEMU version + the current `build-qemu-android.sh`), and
+**rebuilds + republishes** it (same tag, fresh assets) only when the
+release doesn't exist yet or is outdated — no separate workflow, no
+manual ordering, run Android-Build and it does the right thing. The
+Mobian VM image itself is built by `android/scripts/build-mobian-image.sh`
+on a root Debian machine (needs nbd + chroot) and attached to a release
+manually — the app's first-launch downloader pulls it from there.
 
 All dev workflows run the full gate before shipping anything: rustfmt
 (`--check`), clippy (`-D warnings`), `cargo test`, then the same

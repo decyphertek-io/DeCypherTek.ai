@@ -80,7 +80,9 @@ pub fn find_engine(engine_dir: &str) -> Result<PathBuf> {
 }
 
 /// UEFI firmware for aarch64: either downloaded into the vm dir, or
-/// bundled alongside the engine as libedk2-arm.fd / libedk2-vars.fd.
+/// bundled alongside the engine as libedk2-arm64.fd / libedk2-vars.fd
+/// (the vm-engine release asset names, staged into jniLibs by
+/// build-android.sh).
 /// Returns (efi, writable_vars).
 fn find_firmware(engine_dir: &str, dir: &Path) -> Result<(PathBuf, PathBuf)> {
     let efi = dir.join("QEMU_EFI.fd");
@@ -88,13 +90,13 @@ fn find_firmware(engine_dir: &str, dir: &Path) -> Result<(PathBuf, PathBuf)> {
     let vars = dir.join("vars.fd");
 
     if !efi.is_file() {
-        let bundled = Path::new(engine_dir).join("libedk2-arm.fd");
+        let bundled = Path::new(engine_dir).join("libedk2-arm64.fd");
         if bundled.is_file() {
             std::fs::copy(&bundled, &efi).context("copy bundled UEFI firmware")?;
         } else {
             bail!(
                 "no UEFI firmware: run image.ensure (bios_url) or bundle \
-                 libedk2-arm.fd with the engine"
+                 libedk2-arm64.fd with the engine"
             );
         }
     }
