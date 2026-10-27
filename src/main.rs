@@ -29,7 +29,9 @@ DeCypherTek.ai — a customizable, self-learning AI agent in one Rust binary.
 
 USAGE:
   decyphertek.ai         launch the slash shell (asks vault password, decrypts memory)
-  decyphertek.ai setup   run the first-time walkthrough wizard (brain, grants)
+  decyphertek.ai setup   the setup wizard — fresh installs stay simple (brain +
+                         leash, defaults for the rest); on an existing agent it
+                         is the full customizer, same as /setup inside the shell
   decyphertek.ai --help  this help
   decyphertek.ai --version  print version
 
@@ -60,7 +62,8 @@ fn try_main() -> Result<()> {
     }
 }
 
-/// `decyphertek.ai setup`: wizard first, then optionally launch the shell.
+/// `decyphertek.ai setup`: the wizard — quick on a fresh install (brain +
+/// leash, then defaults), full customization when a config exists.
 fn cmd_setup() -> Result<()> {
     let paths = Paths::from_home().context("locate home directory")?;
     std::fs::create_dir_all(&paths.root)
