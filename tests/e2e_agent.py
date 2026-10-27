@@ -48,7 +48,7 @@ def check(cond, name):
 
 DOWN = "\x1b[B"
 
-print("=== 1. wizard: fake ollama backend ===")
+print("=== 1. wizard: fake ollama backend, quick install ===")
 m, p = spawn([])
 drain(2.5)
 send(DOWN + "\r")              # backend: ollama (index 1)
@@ -59,15 +59,10 @@ out = text()
 check("qwen2.5" in out, "fake ollama models listed")
 send("\r")                     # model: qwen2.5:0.5b-instruct
 drain(1.5)
-send("\r")                     # memory folders: empty
-drain(1.5)
-send("\r")                     # leash: leashed
-drain(1.5)
-send("\r")                     # tools: defaults
-drain(1.5)
-send("\r")                     # research profile: default skip
-drain(2.5)
+send("\r")                     # leash: leashed — the last question
+drain(3.0)                     # leashed panel + one-folder summary + password
 out = text()
+check("/setup" in out, "summary points at /setup for customization")
 check("Vault password" in out, "fresh vault password prompt")
 send("e2e-password-123\r")
 drain(2.0)

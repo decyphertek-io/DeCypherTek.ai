@@ -44,12 +44,13 @@ ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07")
 def text():
     return ANSI.sub("", buf.decode(errors="replace"))
 
-print("=== 1. first launch: fresh HOME -> wizard ===")
+print("=== 1. first launch: fresh HOME -> quick wizard ===")
 m, p = spawn([])
 drain(2.5)                     # banner + welcome + backend select
 out = text()
 check("ADMINOTAUR" in out, "welcome names the adminotaur agent")
 check("Choose the brain" in out, "backend prompt")
+check("/setup" in out, "welcome points at /setup for customization")
 send("\r")                     # OpenRouter
 drain(1.5)                     # api key password prompt
 send("sk-or-v1-dummy-key-e2e\r")
@@ -57,20 +58,19 @@ drain(6.0)                     # model select + live probe
 out = text()
 check("Default model" in out, "model prompt shown")
 send("\r")                     # ~z-ai/glm-flash-latest (default model)
-drain(1.5)                     # memory folders question
-send("\r")                     # empty -> no grant question, no leash skip
-drain(1.5)
+drain(1.5)                     # the leash — the last question of a quick install
 out = text()
 check("The Leash" in out or "leash" in out.lower(), "leash prompt appeared")
-send("\r")                     # leashed
-drain(1.5)                     # tool multiselect
-send("\r")                     # defaults: web_search + read_files + mcp_servers
-drain(1.5)                     # research profile confirm
+send("\r")                     # leashed — defaults, no further questions
+drain(3.0)                     # leashed panel + one-folder summary + password
 out = text()
-check("research profile" in out.lower(), "research profile prompt appeared")
-send("\r")                     # default: skip creating one now
-drain(3.0)                     # next: fresh-install password
-out = text()
+check("Memory folders" not in out, "quick install does NOT ask for memory folders")
+check("Grant tools" not in out, "quick install does NOT ask for tool grants")
+check("Create a research profile" not in out, "quick install does NOT quiz for research profiles")
+check("rag-chat.yml" in out, "summary lists the ready research profiles")
+check("vectors.db" in out, "summary lists the RAG memory store")
+check("vault.dct" in out, "summary says everything lives in the one folder")
+check("/setup" in out, "summary says how to customize: /setup")
 check("Vault password" in out, "new vault password prompt")
 send("e2e-password-123\r")
 drain(2.0)
@@ -119,6 +119,7 @@ send("@wiki list\r")
 drain(1.5)
 out = text()
 check("operative-handbook" in out, "baseline wiki present in vault")
+check("research/rag-chat.yml" in out, "baseline research profiles present in vault")
 
 send("@leash unleashed\r")
 drain(1.5)

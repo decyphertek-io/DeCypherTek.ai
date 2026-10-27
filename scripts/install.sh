@@ -70,9 +70,13 @@
 # docker daemon to enable, start or babysit on a working desktop either.
 #
 # No separate setup step either way: the installer ends by launching
-# decyphertek.ai itself, the launcher detects a fresh install, runs the
-# walkthrough (OpenRouter/Ollama, the Leash, @store servers are
-# optional adds), and drops you in the @-shell after.
+# decyphertek.ai itself, the launcher detects a fresh install and runs
+# a SHORT first-run wizard — just the brain (OpenRouter key + model, or
+# Ollama) and the Leash. Everything else defaults, and every default
+# path lives in the ONE folder ~/.decyphertek.ai (vault, llm wiki,
+# research profiles, RAG memory) — then it drops you in the @-shell.
+# Customizing is one command away: /setup re-runs the full wizard
+# (memory folders, grants, research profiles) any time.
 # Re-run any time to update — it asks again: do you want the Production
 # or the Experimental branch? (Production = releases/latest, the stable
 # Prod-Build output; Experimental = the newest dev-adminotaur prerelease.
@@ -865,8 +869,10 @@ echo
 if [[ -f "$DATA_DIR/vault.dct" ]]; then
   ok "existing agent found at $DATA_DIR — update complete."
 else
-  ok "no existing agent — the walkthrough (brain, leash, vault"
-  ok "password) starts automatically on first launch. @setup re-runs it."
+  ok "no existing agent — first launch asks just the brain (OpenRouter"
+  ok "key + model, or Ollama) and the Leash; everything else defaults"
+  ok "into $DATA_DIR (llm wiki, research profiles, RAG memory)."
+  ok "to customize, type /setup"
 fi
 
 # The installer finishes by RUNNING decyphertek.ai itself — not by

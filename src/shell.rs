@@ -33,7 +33,8 @@ slash shell — commands run exactly as typed; /-commands wake the agent.
   /status             current agent, brain, leash, grants, memory
   /wiki list          list wiki memory pages
   /wiki read <name>   print a wiki page
-  /setup              re-run the walkthrough (brain, grants, tools)
+  /setup              customize: brain, memory folders, leash + grants,
+                      research profiles (Enter keeps what you already have)
   /password           change the vault password
   /help               this help
   exit                seal the vault and quit
