@@ -14,9 +14,8 @@ final class _Bindings {
     final DynamicLibrary lib;
     if (Platform.isAndroid) {
       lib = DynamicLibrary.open('libdecyphertek_core.so');
-    } else if (Platform.isMacOS) {
-      lib = DynamicLibrary.open('libdecyphertek_core.dylib');
     } else {
+      // Linux host builds of the app shell load the same .so.
       lib = DynamicLibrary.open('libdecyphertek_core.so');
     }
     command = lib.lookupFunction<

@@ -2,7 +2,7 @@
 # Build the DeCypherTek.ai Android APK (Flutter + Rust).
 #
 # Separate from the terminal AI's pipeline on purpose: the repo root
-# stays a plain Rust crate for Linux/macOS/Termux; this script only
+# stays a plain Rust crate for Linux; this script only
 # touches android/. The CI workflow (.github/workflows/Android-Build.yml)
 # calls this script.
 #

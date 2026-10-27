@@ -1,7 +1,7 @@
 # DeCypherTek.ai
 
 > **Status: v0.1.0 — the first runnable build ships in this repo.**
-> One Rust binary. Termux on Android first — if it works there, it works on any Linux (or macOS) with an architecture build for it.
+> One Rust binary. Linux only — the Podroid Android VM first; if it works there, it works on any aarch64 or x86_64 Linux.
 
 A customizable, self-learning AI agent. It runs as one native Rust executable, wakes from a normal shell only when you type a slash command, remembers what it learns in an encrypted local memory, does research on the web, and reports once, cleanly, in a TUI. Everything it is — config, API keys, memory, forensic logs — lives encrypted in `~/.decyphertek.ai/` and is sealed with a password only you hold.
 
@@ -9,21 +9,15 @@ A customizable, self-learning AI agent. It runs as one native Rust executable, w
 
 ## Quick Start
 
-**Termux / Android** (from the Termux terminal):
+One install command, everywhere it runs — the **Podroid terminal** (Android: the real Alpine Linux VM its app boots; also works over its SSH) or any **Linux terminal** on x86_64/aarch64. The installer detects which machine it is on and installs the right release, into one folder both times:
 
 ```bash
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash
 ```
 
-**Podroid / Android** (from the Podroid terminal — same one-command install; also works over its SSH):
+The installer:
 
-```bash
-curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash
-```
-
-**Linux / macOS** — the exact same command. The installer:
-
-1. **On Termux/Android**: containers can't run in Termux proper (no root), and *nothing of the agent is downloaded into Termux itself*. The installer bootstraps a **proot Debian Linux** home first — as a **custom-named `decyphertek` instance** (`proot-distro install debian --override-alias decyphertek`), so a Debian proot you installed yourself under the plain `debian` alias is never touched. Inside that Linux container, in order: `apt update`, then `apt install -y podman podman-docker podman-compose curl gnupg ca-certificates`, and **last** the **chosen release binary** (Production stable, or the Experimental dev build) from GitHub Releases (verifying its SHA-256) is downloaded and installed as `/usr/local/bin/decyphertek.ai`. Containers run on **daemonless podman** (docker's daemon can't boot reliably under proot — its default overlay storage driver needs a mount proot will never provide); the installer configures the **vfs storage driver** (`/etc/containers/storage.conf`) and `podman-docker` installs a docker-compatible CLI, so `/store` keeps issuing plain `docker` commands unchanged. A **sourced alias lands in `~/.bashrc`**, so typing `decyphertek.ai` from a Termux prompt launches you straight into the proot Debian terminal. **On Podroid** — the Android app that boots a **real Alpine Linux VM** with its own kernel (a virtual machine, not a proot) — none of that machinery is needed: the terminal is already inside a Linux machine, so the installer skips the proot stage entirely and runs the plain **one-folder install directly in the VM** (Alpine's ash shell reads `~/.profile`, so the `PATH` block lands there as well as in `~/.bashrc`). The VM ships **podman pre-installed and rootless-ready**, and `/store`'s MCP tool servers connect to exactly that: the installer drops a small `docker`→podman shim into the agent's own bin dir (the first `PATH` entry it wires), so every plain `docker` command the agent issues is served by podman — while the VM's own real docker package (`/usr/bin/docker` + dockerd) stays exactly as Podroid shipped it. Everything lands on the persistent ext4 overlay, so the agent, vault and containers survive VM reboots. Everywhere else it is **one folder**: the installer detects the Linux flavor (Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine …) and the CPU, installs the verified release binary into `~/.decyphertek.ai/bin/` — the same folder that already holds the encrypted vault — wires `decyphertek.ai` onto your `PATH`, and best-effort installs **daemonless podman + podman-docker** through the distro's package manager, so `/store`'s MCP containers work with no docker daemon to manage.
+1. **Detects the machine and installs into ONE folder.** On **Podroid** — the Android app that boots a **real Alpine Linux VM** with its own kernel (a virtual machine, not a translation layer) — the terminal is already inside a Linux machine, so the plain one-folder install runs directly in the VM (Alpine's ash shell reads `~/.profile`, so the `PATH` block lands there as well as in `~/.bashrc`). The VM ships **podman pre-installed and rootless-ready**, and `/store`'s MCP tool servers connect to exactly that: the installer drops a small `docker`→podman shim into the agent's own bin dir (the first `PATH` entry it wires), so every plain `docker` command the agent issues is served by podman — while the VM's own real docker package (`/usr/bin/docker` + dockerd) stays exactly as Podroid shipped it. Everything lands on the persistent ext4 overlay, so the agent, vault and containers survive VM reboots. On any other **Linux** — Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, on x86_64 or aarch64 — it is the same one folder: the verified release binary (Production stable, or the Experimental dev build) goes into `~/.decyphertek.ai/bin/` — the same folder that already holds the encrypted vault — with `decyphertek.ai` wired onto your `PATH`, plus a best-effort install of **daemonless podman + podman-docker** through the distro's package manager, so `/store`'s MCP containers work with no docker daemon to manage. Anything else — macOS, Windows, Termux, a 32-bit arm — the installer refuses in one line and says exactly why.
 2. **Runs the agent itself at the end of the install** — no separate setup step and no "run this next" hand-off. It detects whether it has been configured (does the vault exist?); if not, a **short first-run wizard** runs right there — just the brain (an OpenRouter key + model from a curated list, or Ollama) and the Leash — and **everything else defaults into the one folder** `~/.decyphertek.ai` (llm wiki, research profiles, RAG memory), so you land in the slash shell with **ADMINOTAUR** — the sysadmin agent that operates the whole system — seconds later. Anything you want different is one command away: **to customize, type `/setup`**. If no release is published yet, it tells you exactly which workflow to run.
 3. Re-run the same command any time to **update** — it asks for the channel again and pulls the matching release.
 
@@ -47,7 +41,7 @@ One command, removing exactly what the installer created — and nothing else:
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash
 ```
 
-**Termux:** removes the agent's Debian proot instance, custom-named `decyphertek` — a Debian (or any other) proot you installed yourself is never touched: every removal is guarded by the DeCypherTek fingerprint (its launcher/binary inside the rootfs), so even legacy instances older installers left under the plain `debian` / `archlinux` aliases are only removed when they are provably the agent's. Also removes the `decyphertek.ai` launcher and the sourced alias from `~/.bashrc`. **Desktop (incl. Podroid):** removes the agent's `~/.decyphertek.ai/bin` folder — on Podroid that bin dir is also where the `docker`→podman shim lives, so it goes with it, leaving the VM's own docker untouched — plus its marked `PATH` lines from `~/.bashrc` / `~/.zshrc` (and `~/.profile`, where the installer also writes them on Alpine/Podroid), and any legacy `~/.local/bin/decyphertek.ai` left by earlier installers; packages stay.
+**Linux (incl. the Podroid VM):** removes the agent's `~/.decyphertek.ai/bin` folder — on Podroid that bin dir is also where the `docker`→podman shim lives, so it goes with it, leaving the VM's own docker untouched — plus its marked `PATH` lines from `~/.bashrc` / `~/.zshrc` (and `~/.profile`, where the installer also writes them on Alpine/Podroid), and any legacy `~/.local/bin/decyphertek.ai` left by earlier installers; packages stay.
 
 The **encrypted vault is kept** — it holds your agent's memory, config and keys. Wipe it too with `--purge`:
 
@@ -88,9 +82,8 @@ The terminal stays a normal terminal, down to its prompt: `decyphertek.ai:~$` �
 - **Model layer: OpenRouter or Ollama** — deliberately only two backends, both speaking OpenAI-style HTTP, so one thin client covers the entire model layer. OpenRouter is the default (one key, every hosted model — perfect for a phone: it only makes HTTPS calls), with curated picks offered at setup — **GLM Flash Latest** (`~z-ai/glm-flash-latest`, the cheap+fast default), heavyweight **GLM Latest** (`~z-ai/glm-latest`), **Kimi 3** (`moonshotai/kimi-k3`), and **DeepSeek 4.1 Flash** (`deepseek/deepseek-v4.1-flash`). OpenRouter serves its "latest" aliases only with the tilde prefix, and they always track the newest model in each family; vaults saved with the older tilde-free spelling are migrated on load. Ollama runs your local models.
 - **Encrypted vault** — everything lives at `~/.decyphertek.ai/vault.dct`: AES-256-GCM over a gzip'd tar of the whole data directory, key derived with Argon2id from your password (salted, fresh nonce per seal). Launch asks for the password, decrypts to a private staging dir, and seals atomically on exit — AES-GCM's authentication means a wrong password simply fails. Crash mid-session? The plaintext staging survives, and the next launch re-verifies and re-seals it.
 - **RAG vector store** — one SQLite file, chunked knowledge, deterministic 256-dim feature-hashing embeddings + cosine search; zero external services, zero model downloads, fully offline (a phone-sized brain has to run on the phone).
-- **Wiki Memory** — markdown knowledge base with a baseline shipped *inside the binary* (operative handbook, Termux playbook, vault internals, commands, adminotaur, RAG design), plus everything the agent writes back.
+- **Wiki Memory** — markdown knowledge base with a baseline shipped *inside the binary* (operative handbook, vault internals, commands, adminotaur, RAG design), plus everything the agent writes back.
 - **MCP tool servers via `/store`** — a fuzzy-search TUI over *every MCP server found in Docker*, A-Z: an in-binary seed catalog (fetch, git, github, slack, time, …), a live Docker Hub query, and images already pulled on the machine. Pick one, pull, register — its tools merge into the agent's tool list as `mcp_<server>_<tool>`. Servers launch under a **security template that keeps them internal-only**: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, memory/pid caps, no published ports — the only channel a server gets is the stdio pipe the agent holds, so it can answer the agent and nothing else. Enable/disable/uninstall from the same TUI; the registry seals into the vault.
-- **Proot Debian Linux home on Termux** — containers can't run in Termux proper, so the installer bootstraps a `proot-distro` Debian rootfs **under a dedicated `decyphertek` instance name** (your own Debian proot is never touched, and uninstall removes exactly this instance) and does everything inside it, in order: `apt update`, `apt install -y podman podman-docker podman-compose curl gnupg ca-certificates`, and the DeCypherTek.ai binary downloaded *last* into `/usr/local/bin/decyphertek.ai` — nothing is staged in Termux itself. The container runtime inside is **podman, daemonless**: dockerd cannot boot reliably under proot (its overlay storage driver needs an overlayfs mount proot will never provide), while podman just needs the **vfs storage driver** (written to `/etc/containers/storage.conf`); `podman-docker` provides the docker-compatible CLI, so `/store` runs unchanged. Typing `decyphertek.ai` from Termux runs a **sourced alias (installed into `~/.bashrc`)** that launches you into the proot Debian terminal (a regular passthrough terminal — everything typed runs as typed, only slash commands wake the agent). The vault stays bind-mounted from real Termux home so container reinstalls never touch your agent. A first-run probe asks the runtime once and reports whether `/store`'s launches are fully operational.
 - **Zero-step setup** — the installer finishes by running `decyphertek.ai` itself; the launcher detects whether the agent has been configured and, on a fresh install, a short wizard runs immediately: brain (OpenRouter key + model, or Ollama), the Leash — then plain defaults into `~/.decyphertek.ai`, straight into the slash shell. No folder quizzes, no grant menus, no research prompts; the wizard ends by pointing at `/setup`. `/setup` (or `decyphertek.ai setup`) opens the full customization wizard — brain, memory folders, leash + per-ability grants, research profiles — whenever you want to change anything.
 - **The leash (permissions)** — the agent reads/writes folders and tools only as granted: read folders, write folders, per-tool switches (web_search, read_files, write_files, run_command, mcp_servers). Leashed, it can always touch its own data dir and nothing else; tool calls beyond grants come back `DENIED` — logged, respected, reported. Unleashed, folder scopes drop **and every ability turns on** — the runtime offers and runs every tool regardless of the switches, which resume only when re-leashed; the agent's own system prompt is told exactly that, so it uses what it has instead of assuming it has nothing. Leashed + run_command enabled asks you to confirm each command interactively. In `/setup` the two modes ask differently: leashed shows a can/can't list and the space-to-toggle ability menu; unleashed lists everything it can do behind one "Do you really accept?" — accept turns all abilities on. A fresh install asks no grant menus at all: leashed just lands on the default grants; unleashed still shows the full list and takes that one accept.
 - **Forensic chat logs** — every run leaves a JSONL case file: prompts, model replies, every tool call with arguments, results, final report. Case files are chunked into RAG memory (so past dialogues are recallable), and rotate into monthly `tar.gz` archives after 30 days.
@@ -99,9 +92,9 @@ The terminal stays a normal terminal, down to its prompt: `decyphertek.ai:~$` �
 - **`/upload`** — a folder-picker TUI (opens at Downloads, walks the tree, `(go up)`/`(done)`) that copies picked files into the wiki's `info/` folder and chunks them into RAG memory: your docs travel with the agent, sealed inside the vault.
 - **Learning loop** — recall memory before a run; instruct the model docs-first (read before using an unfamiliar tool); distill learnings via the `remember` and `write_wiki` tools; every report itself is chunked as `report`-kind knowledge, so next run starts smarter.
 
-## Ollama on Termux — really slim phone models
+## Ollama — really slim local models
 
-The walkthrough offers to install Ollama straight from the Termux user repository when it runs on a phone (`pkg install tur-repo && pkg install ollama`), and can pull the default pick for you. The models actually sized for a phone:
+Local Ollama gives a phone-sized setup — the Podroid VM, a small ARM box — a no-cloud brain. Install it yourself where it runs (`apk add ollama` on the Alpine VM, the distro's package or the official install script elsewhere), start the daemon, and the agent reaches it at `http://127.0.0.1:11434`. The models actually sized for a phone:
 
 | Model | Size | Notes |
 | --- | --- | --- |
@@ -110,7 +103,7 @@ The walkthrough offers to install Ollama straight from the Termux user repositor
 | `smollm2:360m` | ~300 MB | very tight devices |
 | `nomic-embed-text` | ~274 MB | roadmap: neural embeddings for RAG |
 
-Start the daemon in a second Termux session (`ollama serve`), and the agent reaches it at `http://127.0.0.1:11434`. Realistic expectations: these handle short tasks and chat, not deep reasoning; OpenRouter stays the default brain for heavy thinking.
+Start the daemon in a second terminal (`ollama serve &`), and the agent reaches it at `http://127.0.0.1:11434`. Realistic expectations: these handle short tasks and chat, not deep reasoning; OpenRouter stays the default brain for heavy thinking.
 
 ## The Secure Vault
 
@@ -149,7 +142,7 @@ In `/setup` (the customization wizard) the two modes ask differently:
 
 ## Android App — the QEMU + Mobian VM (no VNC, ever)
 
-Termux/proot can't run a real kernel or containers, and Podroid exposes
+A proot translation layer can't run a real kernel or containers, and Podroid exposes
 VNC on :5900 with no password — so the repo now ships its own Android
 app: **Flutter + Rust, in [`android/`](android/README.md)**, built by
 its own manual workflows, completely separate from the terminal AI
@@ -182,15 +175,12 @@ and [`android/README.md`](android/README.md).
 
 The **Prod-Build** workflow is manual dispatch: *Actions → Prod-Build → Run workflow* — optionally set a tag (default is `v<version from Cargo.toml>`) and notes. It cross-compiles the single binary for every target, packages + checksums them, and publishes a GitHub Release. The install script pulls `releases/latest`, so every release instantly becomes what a phone or PC installs, and the installer doubles as the updater.
 
-| Asset (from `releases/latest`) | Runs on | Conceptual folder |
-| --- | --- | --- |
-| `decyphertek-aarch64-unknown-linux-musl.tar.gz` | **Termux on Android (64-bit)**, **Podroid's Alpine VM**, ARM Linux servers | `android-arm/` |
-| `decyphertek-armv7-unknown-linux-musleabihf.tar.gz` | older 32-bit Android phones | `android-arm/` |
-| `decyphertek-x86_64-unknown-linux-musl.tar.gz` | PCs, servers | `pc/` |
-| `decyphertek-aarch64-apple-darwin.tar.gz` | Apple Silicon Macs | `pc/` |
-| `decyphertek-x86_64-apple-darwin.tar.gz` | Intel Macs | `pc/` |
+| Asset (from `releases/latest`) | Runs on |
+| --- | --- |
+| `decyphertek-aarch64-unknown-linux-musl.tar.gz` | **Podroid's Alpine VM (Android)**, ARM Linux boxes and servers |
+| `decyphertek-x86_64-unknown-linux-musl.tar.gz` | PCs, servers |
 
-Static musl binaries run on any Linux regardless of the host's libc — the same file that runs on a stock Debian server runs unchanged inside Termux.
+Static musl binaries run on any Linux regardless of the host's libc — the same file that runs on a stock Debian server runs unchanged inside Podroid's VM.
 
 ## Architecture
 
@@ -218,7 +208,7 @@ flowchart TB
 
     subgraph Models["Model backends - one OpenAI-style client"]
         OpenRouter["OpenRouter<br/>default · one key, every hosted model"]
-        Ollama["Ollama<br/>optional · local · slim phone models on Termux"]
+        Ollama["Ollama<br/>optional · local · slim models for small VMs"]
     end
 
     subgraph Tools["Tool layer - built-in, leash-enforced"]
@@ -272,9 +262,9 @@ Rust end to end, deliberately small: `ureq` (HTTPS with rustls), `rusqlite` (bun
 
 - **No Python, no LangChain.** The docs-first learning loop is deliberately small — prompt the model, run the tool, chunk the result, update the wiki. A framework would outweigh the app; in Rust it is just code in one binary.
 - **Crates, not ecosystems.** One HTTP client for the model backends and web search, one SQLite binding for the vector store, one markdown writer for Wiki Memory — small crates, nothing dragging an ML stack behind them.
-- **Cross-compiled, not ported.** Every target comes from the identical codebase: aarch64 musl for Termux (the old `android-arm/` idea), x86_64 musl for PCs (`pc/`), darwin for Macs. No maintained divergence, no separate fork for Termux.
+- **Cross-compiled, not ported.** Every target comes from the identical codebase: aarch64 musl for the Podroid VM and ARM boxes, x86_64 musl for PCs. No maintained divergence, no separate fork for any platform.
 
-Everything cross-compiles static; CI is `cargo test` on Linux + macOS with clippy + fmt gating.
+Everything cross-compiles static; CI is `cargo test` on Linux with clippy + fmt gating.
 
 ## Development
 
@@ -307,7 +297,7 @@ Phase 1 shipped in this build:
 - [x] The leash — folder grants, tool gates, leashed/unleashed
 - [x] Encrypted vault — password on launch, sealed on exit
 - [x] TUI walkthrough wizard + the ADMINOTAUR sysadmin agent
-- [x] Cross-compiled release pipeline (Termux aarch64 first-class) + manual release workflow
+- [x] Cross-compiled release pipeline (aarch64 + x86_64 Linux, Podroid VM first-class) + manual release workflow
 - [x] One-command installer pulling `releases/latest` (doubles as updater)
 
 Next phases:

@@ -32,8 +32,8 @@ manually — the app's first-launch downloader pulls it from there.
 
 All dev workflows run the full gate before shipping anything: rustfmt
 (`--check`), clippy (`-D warnings`), `cargo test`, then the same
-cross-compile matrix as Prod-Build (Linux aarch64/armv7/x86_64 musl +
-macOS aarch64/x86_64), a smoke test, checksums, packaging.
+cross-compile matrix as Prod-Build (Linux aarch64/x86_64 musl), a
+smoke test, checksums, packaging.
 
 ## The Branches (the contributors)
 

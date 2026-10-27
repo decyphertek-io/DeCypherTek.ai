@@ -3,27 +3,14 @@
 #
 # Removes exactly what scripts/install.sh created — and nothing else.
 #
-#   Termux:
-#     - the Debian proot instance the installer custom-named
-#       'decyphertek' — removable by name, so a Debian (or any other)
-#       proot you installed yourself is never touched. Removed via
-#       'proot-distro remove' when it cooperates — that command takes
-#       no options in any proot-distro release — or, when it refuses,
-#       by wiping exactly the fingerprinted container directory.
-#     - legacy instances earlier installers left under the plain
-#       'debian' / 'archlinux' aliases — removed only when they carry
-#       the DeCypherTek fingerprint (our launcher/binary inside the
-#       rootfs); your own keep that fingerprint absent and survive.
-#     - the decyphertek.ai launcher in $PREFIX/bin and the sourced
-#       alias in ~/.bashrc / ~/.zshrc.
-#
-#   Desktop:
+#   Linux (incl. the Podroid VM):
 #     - the ~/.decyphertek.ai/bin folder (the binary — on Podroid it
-#       also holds the docker->podman shim, removed with it) and its
-#       marked PATH block in ~/.bashrc / ~/.zshrc (~/.profile too on
-#       Alpine/Podroid, whose ash reads .profile); plus a legacy binary
-#       an older installer left in ~/.local/bin. podman and every other
-#       package it installed stay — they are shared software.
+#       also holds the docker->podman shim, removed with it).
+#     - its marked PATH block in ~/.bashrc / ~/.zshrc (~/.profile too
+#       on Alpine/Podroid, whose ash reads .profile).
+#     - a legacy binary an older installer left in ~/.local/bin.
+#     - podman and every other package the installer installed stay —
+#       they are shared software.
 #
 # The encrypted vault in ~/.decyphertek.ai holds your agent — memory,
 # config, keys — and is KEPT by default. Pass --purge to wipe it too.
@@ -31,9 +18,6 @@ set -euo pipefail
 
 BIN_NAME="decyphertek.ai"
 DATA_DIR="${HOME}/.decyphertek.ai"
-# The installer's Debian instance, under its dedicated alias — removing
-# it can never collide with a user-installed Debian proot.
-PROOT_DISTRO="decyphertek"
 
 say()  { printf '\033[36m>>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m !\033[0m %s\n' "$*"; }
@@ -51,161 +35,39 @@ case "${1:-}" in
   *) die "unknown option '$1' — only --purge is supported" ;;
 esac
 
-TERMUX=0
-if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == *com.termux* ]]; then TERMUX=1; fi
-
-need() { command -v "$1" >/dev/null 2>&1; }
-
-# proot-distro layouts: v5 keeps containers/<alias>/rootfs, v4 used
-# installed-rootfs/<alias>.
-pd_rootfs_of() {  # $1 = alias -> prints existing rootfs path, else rc 1
-  local cand
-  for cand in \
-    "${PREFIX}/var/lib/proot-distro/containers/$1/rootfs" \
-    "${PREFIX}/var/lib/proot-distro/installed-rootfs/$1"; do
-    if [[ -d "$cand" ]]; then
-      printf '%s' "$cand"
-      return 0
-    fi
-  done
-  return 1
-}
-
-# Ours or the user's? Every release of the installer wrote the
-# dct-launch helper / the decyphertek.ai binary into the rootfs's
-# /usr/local/bin — that fingerprint is what authorizes a removal.
-ours_by_fingerprint() {  # $1 = rootfs path
-  [[ -f "$1/usr/local/bin/dct-launch" ]] || [[ -f "$1/usr/local/bin/$BIN_NAME" ]]
-}
-
-# The directory proot-distro itself deletes on removal: v5 keeps the
-# rootfs (and its manifest) under containers/<alias>, v4 used
-# installed-rootfs/<alias> — a layout v5 does not manage at all.
-pd_container_dir_of() {  # $1 = alias -> prints container dir, else rc 1
-  local cand
-  for cand in \
-    "${PREFIX}/var/lib/proot-distro/containers/$1" \
-    "${PREFIX}/var/lib/proot-distro/installed-rootfs/$1"; do
-    if [[ -d "$cand" ]]; then
-      printf '%s' "$cand"
-      return 0
-    fi
-  done
-  return 1
-}
-
-# Remove an instance ours_by_fingerprint just declared ours. proot-distro
-# first — but its 'remove' takes no options in ANY release: the v3/v4
-# bash script aborts on them ("got unknown option"), the v5+ rewrite
-# exits with "unrecognized option". The '--force' this uninstaller used
-# to append therefore always failed, and the container stayed installed.
-# When proot-distro still refuses — a live agent session holds the
-# container lock (v5+), a lost alias plugin makes v4 reject the name, or
-# the binary is simply missing — delete the container directory the
-# same way proot-distro itself does (best-effort chmod, then rm -rf of
-# the entry alone where it is a symlink), plus the v4-era generated
-# alias plugin. The fingerprint above authorizes every path touched.
-pd_remove_instance() {  # $1 = alias -> rc 0 only when it is gone
-  local dir
-  if need proot-distro; then
-    proot-distro remove "$1" >/dev/null 2>&1 || true
-  fi
-  if dir="$(pd_container_dir_of "$1")"; then
-    if [[ ! -L "$dir" ]]; then
-      chmod -R u+rwx "$dir" >/dev/null 2>&1 || true
-    fi
-    rm -rf "$dir"
-    rm -f "${PREFIX}/etc/proot-distro/$1.override.sh"
-  fi
-  pd_container_dir_of "$1" >/dev/null && return 1
-  return 0
-}
-
 say "DeCypherTek.ai uninstaller"
 
-if [[ "$TERMUX" == 1 ]]; then
-  # 1) the agent's own Debian proot instance — dedicated 'decyphertek'
-  #    alias: removable by name, never a user's separate Debian.
-  if root="$(pd_rootfs_of "$PROOT_DISTRO")"; then
-    if ours_by_fingerprint "$root"; then
-      pd_remove_instance "$PROOT_DISTRO" \
-        && ok "removed the '$PROOT_DISTRO' Debian proot instance" \
-        || warn "could not remove the '$PROOT_DISTRO' instance — run: proot-distro remove $PROOT_DISTRO"
-    else
-      warn "a proot instance named '$PROOT_DISTRO' exists but carries no DeCypherTek"
-      warn "fingerprint — it was not installed by DeCypherTek; leaving it alone."
-    fi
-  else
-    ok "no '$PROOT_DISTRO' Debian proot instance (already gone)"
-  fi
-
-  # 2) legacy instances earlier installers left behind, under stock
-  #    aliases. Fingerprinted → ours → remove; the user's own Debian or
-  #    Arch proots (no fingerprint) survive.
-  for alias in debian archlinux; do
-    if root="$(pd_rootfs_of "$alias")"; then
-      if ours_by_fingerprint "$root"; then
-        pd_remove_instance "$alias" \
-          && ok "removed the older '$alias' instance left by a previous installer" \
-          || warn "could not remove the '$alias' instance — run: proot-distro remove $alias"
-      else
-        ok "kept '$alias' — it is not DeCypherTek's"
-      fi
-    fi
-  done
-
-  # 3) the Termux-side launcher (and the legacy pre-alias one).
-  for f in "$PREFIX/bin/$BIN_NAME" "$PREFIX/bin/decyphertek"; do
-    if [[ -e "$f" ]]; then
-      rm -f "$f"
-      ok "removed $f"
-    fi
-  done
-
-  # 4) the sourced alias lines from the shell rc files.
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    [[ -f "$rc" ]] || continue
-    if grep -q '^alias decyphertek\.ai=' "$rc"; then
-      sed -i \
-        -e '\|^# DeCypherTek.ai — from a Termux prompt straight into the proot Debian home$|d' \
-        -e '\|^alias decyphertek\.ai=|d' "$rc"
-      ok "alias stripped from $rc"
-    fi
-  done
-  warn "already-open shells keep the old alias in memory — open a new Termux"
-  warn "shell for it to be gone everywhere."
+# The agent's one folder minus the vault: the binary in
+# ~/.decyphertek.ai/bin, its marked PATH block (also written to
+# ~/.profile on Alpine/Podroid, whose ash reads .profile), and a legacy
+# binary an older installer left in ~/.local/bin. Package installs
+# (podman, …) stay — they are shared software.
+if [[ -e "$HOME/.local/bin/$BIN_NAME" ]]; then
+  rm -f "$HOME/.local/bin/$BIN_NAME"
+  ok "removed legacy binary: $HOME/.local/bin/$BIN_NAME"
 else
-  # Desktop: the agent's one folder minus the vault — the binary in
-  # ~/.decyphertek.ai/bin, its marked PATH block, and a legacy binary an
-  # older installer left in ~/.local/bin. Package installs (podman, ...)
-  # stay — they are shared software.
-  if [[ -e "$HOME/.local/bin/$BIN_NAME" ]]; then
-    rm -f "$HOME/.local/bin/$BIN_NAME"
-    ok "removed legacy binary: $HOME/.local/bin/$BIN_NAME"
-  else
-    ok "no legacy ~/.local/bin/$BIN_NAME (already gone)"
-  fi
-  if [[ -e "$DATA_DIR/bin" ]]; then
-    rm -rf "$DATA_DIR/bin"
-    ok "removed $DATA_DIR/bin"
-  else
-    ok "no agent bin folder found at $DATA_DIR/bin (already gone)"
-  fi
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    [[ -f "$rc" ]] || continue
-    if grep -qF '.decyphertek.ai/bin' "$rc"; then
-      grep -v -F \
-        -e '# DeCypherTek.ai — agent bin on PATH (uninstall.sh removes this block)' \
-        -e 'export PATH="$HOME/.decyphertek.ai/bin:$PATH"' \
-        "$rc" > "$rc.tmp" || true
-      cat "$rc.tmp" > "$rc"
-      rm -f "$rc.tmp"
-      ok "PATH block stripped from $rc"
-    fi
-  done
+  ok "no legacy ~/.local/bin/$BIN_NAME (already gone)"
 fi
+if [[ -e "$DATA_DIR/bin" ]]; then
+  rm -rf "$DATA_DIR/bin"
+  ok "removed $DATA_DIR/bin"
+else
+  ok "no agent bin folder found at $DATA_DIR/bin (already gone)"
+fi
+for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+  [[ -f "$rc" ]] || continue
+  if grep -qF '.decyphertek.ai/bin' "$rc"; then
+    grep -v -F \
+      -e '# DeCypherTek.ai — agent bin on PATH (uninstall.sh removes this block)' \
+      -e 'export PATH="$HOME/.decyphertek.ai/bin:$PATH"' \
+      "$rc" > "$rc.tmp" || true
+    cat "$rc.tmp" > "$rc"
+    rm -f "$rc.tmp"
+    ok "PATH block stripped from $rc"
+  fi
+done
 
-# 5) the encrypted vault: your agent's memory — kept unless --purge.
+# The encrypted vault: your agent's memory — kept unless --purge.
 if [[ -e "$DATA_DIR" ]]; then
   if [[ "$PURGE" == 1 ]]; then
     rm -rf "$DATA_DIR"

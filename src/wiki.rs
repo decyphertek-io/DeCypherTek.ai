@@ -18,10 +18,6 @@ pub const BASELINE_FILES: &[(&str, &str)] = &[
         include_str!("../assets/wiki/adminotaur.md"),
     ),
     (
-        "termux-playbook.md",
-        include_str!("../assets/wiki/termux-playbook.md"),
-    ),
-    (
         "secure-vault.md",
         include_str!("../assets/wiki/secure-vault.md"),
     ),
