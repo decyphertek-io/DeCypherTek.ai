@@ -94,7 +94,6 @@ mkdir -p "$PREFIX"
 # still shipped as of r29; if a future NDK drops them, fall back to the
 # plain clang with explicit --target/--sysroot flags everywhere.
 TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
-[[ -d "$TOOLCHAIN" ]] || TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin"
 [[ -d "$TOOLCHAIN" ]] || die "unsupported NDK layout: $NDK"
 SYSROOT="$(dirname "$TOOLCHAIN")/sysroot"
 

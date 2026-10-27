@@ -19,7 +19,8 @@ pub const OPENROUTER_DEFAULT_MODELS: &[&str] = &[
     "deepseek/deepseek-v4.1-flash",
 ];
 
-/// Slim models that actually run on a phone via Ollama in Termux.
+/// Slim models that actually fit a phone-sized Podroid VM (or a small
+/// box) when Ollama runs locally.
 pub const OLLAMA_SLIM_MODELS: &[&str] = &["qwen2.5:0.5b-instruct", "llama3.2:1b", "smollm2:360m"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

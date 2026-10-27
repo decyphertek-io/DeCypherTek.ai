@@ -5,22 +5,22 @@
 > SSH**. No VNC, no port 5900, nothing on the network.
 
 The existing terminal AI (the repo root's Rust crate) is **not modified
-and not re-compiled for Android**: it keeps running on regular
-Linux/macOS/Termux exactly as before. This app is a separate build that
-provides a real Debian-based virtual machine — solving the
-termux/proot limitations (no real kernel, no containers, no systemd) —
-and installs that same agent *inside* the VM using the repo's own
+and not re-compiled for Android**: it keeps running on regular Linux
+exactly as before. This app is a separate build that provides a real
+Debian-based virtual machine — skipping past the proot translation
+limitations (no real kernel, no containers, no systemd) — and installs
+that same agent *inside* the VM using the repo's own
 `scripts/install.sh`.
 
 ## Why
 
-| | Termux + proot | Podroid | **This app** |
-| --- | --- | --- | --- |
-| Real Linux kernel | no (syscall translation) | yes (QEMU) | **yes (QEMU)** |
-| Containers (podman) | vfs-only, fragile | yes | **yes** |
-| VNC on :5900 | n/a | **exposed, no password** | **never used** |
-| Remote access | n/a | reachable from networks | **loopback-only SSH** |
-| GUI in the VM | n/a | Phosh desktop | **none — terminal only** |
+| | Podroid | **This app** |
+| --- | --- | --- |
+| Real Linux kernel | yes (QEMU) | **yes (QEMU)** |
+| Containers (podman) | yes | **yes** |
+| VNC on :5900 | **exposed, no password** | **never used** |
+| Remote access | reachable from networks | **loopback-only SSH** |
+| GUI in the VM | Phosh desktop | **none — terminal only** |
 
 The VM is booted by QEMU with `-display none -monitor none` and exactly
 one network forward: `hostfwd=tcp:127.0.0.1:2222-:22`. The only way in

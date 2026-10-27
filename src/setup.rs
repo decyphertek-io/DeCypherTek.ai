@@ -68,7 +68,6 @@ pub fn prompt_unlock() -> Result<String> {
 #[allow(clippy::too_many_lines)]
 pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     let theme = ColorfulTheme::default();
-    let is_termux = crate::util::is_termux();
     let full = existing.is_some();
     let mut cfg = existing.cloned().unwrap_or_default();
 
@@ -96,7 +95,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
     //    FULL re-run the cursor starts on the provider already set.
     let backends = vec![
         "OpenRouter — hosted models, one API key, nothing to install (recommended)",
-        "Ollama — local models, no cloud; on Termux: slim phone models",
+        "Ollama — local models, no cloud; slim picks for phone-sized VMs",
     ];
     let default_backend = usize::from(cfg.provider == "ollama");
     let backend_idx = Select::with_theme(&theme)
@@ -109,7 +108,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         choose_openrouter(&mut cfg, &theme)?;
     } else {
         cfg.provider = "ollama".into();
-        choose_ollama(&mut cfg, &theme, is_termux)?;
+        choose_ollama(&mut cfg, &theme)?;
     }
 
     // 2. Memory folders (FULL only) = RAG ingest (+ optional read
@@ -541,49 +540,15 @@ fn choose_openrouter(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
     Ok(())
 }
 
-fn choose_ollama(cfg: &mut Config, theme: &ColorfulTheme, is_termux: bool) -> Result<()> {
-    if is_termux {
-        tui::info(
-            "OLLAMA ON TERMUX",
-            "Phones need really slim models. Good ones: \
-             qwen2.5:0.5b-instruct (~500 MB), llama3.2:1b (~1.3 GB), \
-             smollm2:360m (~300 MB).",
-        );
-        if Confirm::with_theme(theme)
-            .with_prompt("Install Ollama in Termux now (tur-repo + ollama)?")
-            .default(false)
-            .interact()?
-        {
-            println!(
-                "{}",
-                console::style("running: pkg install -y tur-repo && pkg install -y ollama").dim()
-            );
-            let r1 = crate::tools::run_command("pkg install -y tur-repo");
-            println!("{r1}");
-            let r2 = crate::tools::run_command("pkg install -y ollama");
-            println!("{r2}");
-            if Confirm::with_theme(theme)
-                .with_prompt("Pull the default slim model now (qwen2.5:0.5b-instruct, ~500 MB)?")
-                .default(true)
-                .interact()?
-            {
-                let r3 = crate::tools::run_command("ollama pull qwen2.5:0.5b-instruct");
-                println!("{r3}");
-            }
-            tui::info(
-                "OLLAMA",
-                "Start the daemon when you need it (second Termux session): \
-                 ollama serve — then the agent reaches it at \
-                 http://127.0.0.1:11434.",
-            );
-        } else {
-            tui::info(
-                "OLLAMA",
-                "Manual install later:\n  pkg install tur-repo\n  pkg install ollama\n  ollama serve &\n  ollama pull qwen2.5:0.5b-instruct",
-            );
-        }
-    }
-
+fn choose_ollama(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
+    tui::info(
+        "OLLAMA",
+        "Local models, no cloud. On a phone-sized setup (the Podroid VM, a \
+         small box) keep it slim — good ones: qwen2.5:0.5b-instruct \
+         (~500 MB), llama3.2:1b (~1.3 GB), smollm2:360m (~300 MB). If the \
+         daemon is not running yet, start it first (ollama serve) and \
+         point the base URL below at it.",
+    );
     cfg.ollama_url = Input::with_theme(theme)
         .with_prompt("Ollama base URL")
         .default(cfg.ollama_url.clone())

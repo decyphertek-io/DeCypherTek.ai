@@ -1,4 +1,4 @@
-//! The `@store` — MCP tool-server management, Termux/Android-first.
+//! The `@store` — MCP tool-server management, Linux/Podroid-VM-first.
 //!
 //! What lives here:
 //! - A curated A-Z seed catalog of well-known MCP (Model Context Protocol)
@@ -274,8 +274,8 @@ pub fn browse(cfg: &mut Config, paths: &Paths, initial_query: &str) -> Result<()
         tui::warn(
             "STORE",
             "Docker was not found on PATH. You can browse the catalog, but \
-             servers only LAUNCH where a Docker daemon answers (Termux: the \
-             installer puts one inside the proot Arch; desktop: install \
+             servers only LAUNCH where a container runtime answers (the \
+             installer wires podman + a docker-compatible CLI; or install \
              Docker, or point DOCKER_HOST at a machine that runs it).",
         );
     }

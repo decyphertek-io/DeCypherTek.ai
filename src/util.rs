@@ -2,18 +2,6 @@
 
 use chrono::Local;
 
-pub fn is_termux() -> bool {
-    if std::env::var("TERMUX_VERSION").is_ok() {
-        return true;
-    }
-    if let Ok(prefix) = std::env::var("PREFIX") {
-        if prefix.contains("com.termux") {
-            return true;
-        }
-    }
-    false
-}
-
 pub fn now_iso() -> String {
     Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
 }

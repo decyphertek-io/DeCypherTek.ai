@@ -15,11 +15,9 @@
 # touched from here, so this pipeline can never create a dev
 # pre-release, and Prod only ever ships `v<version>`.
 #
-# Targets:
-#   aarch64-unknown-linux-musl  -> Termux on Android (64-bit) + ARM Linux
-#   armv7-unknown-linux-musleabihf -> older 32-bit Android phones
-#   x86_64-unknown-linux-musl   -> PCs, servers (pc/)
-#   aarch64/x86_64-apple-darwin -> macOS
+# Targets — Linux only:
+#   aarch64-unknown-linux-musl -> Podroid's Android VM (arm64) + ARM Linux boxes
+#   x86_64-unknown-linux-musl  -> PCs, servers
 
 name: Prod-Build
 
@@ -52,7 +50,6 @@ jobs:
       matrix:
         target:
           - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
           - x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v4
@@ -92,49 +89,9 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  build-macos:
-    name: build ${{ matrix.target }}
-    runs-on: macos-14
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Smoke test the binary
-        run: |
-          target/${{ matrix.target }}/release/decyphertek --version
-          target/${{ matrix.target }}/release/decyphertek --help
-
-      - name: Package
-        run: |
-          mkdir -p pkg dist
-          cp target/${{ matrix.target }}/release/decyphertek pkg/decyphertek
-          cp LICENSE pkg/
-          tar -czf dist/decyphertek-${{ matrix.target }}.tar.gz -C pkg decyphertek LICENSE
-          ( cd dist && shasum -a 256 decyphertek-${{ matrix.target }}.tar.gz > decyphertek-${{ matrix.target }}.tar.gz.sha256 )
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.target }}
-          path: dist/
-          if-no-files-found: error
-
   release:
     name: publish release
-    needs: [build-linux, build-macos]
+    needs: [build-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

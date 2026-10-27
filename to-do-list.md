@@ -72,7 +72,7 @@ Too young to trust yet (re-check first): `sklears`, `rrag`,
 `rust-rag-toolchain`, `rag_engine`.
 
 **Constraints** (hard lines the task must respect)
-- one static binary, cross-built musl for aarch64/armv7/x86_64 (+mac)
+- one static binary, cross-built musl for aarch64/x86_64
   — any new dep must build there; CI proves it
 - phone-first: "no model download, works offline after install" stays
   the default path; heavier embedders are opt-in

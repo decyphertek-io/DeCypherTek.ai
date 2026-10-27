@@ -1,6 +1,7 @@
 //! TUI — the only visible output. Plain ANSI colors + box drawing + wrapping,
-//! over any pty from xterm to Termux. dialoguer is used for interactive
-//! prompts (selections, passwords, confirmations) in setup and confirmations.
+//! over any pty from xterm to the Podroid VM terminal. dialoguer is used for
+//! interactive prompts (selections, passwords, confirmations) in setup and
+//! confirmations.
 
 use std::io::IsTerminal;
 

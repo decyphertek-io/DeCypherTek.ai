@@ -1,5 +1,5 @@
-//! DeCypherTek.ai — one Rust binary, runs anywhere: Termux on Android first,
-//! every other Linux (or macOS) from the same release pipeline.
+//! DeCypherTek.ai — one Rust binary, Linux only: the Podroid Android VM first,
+//! every other aarch64/x86_64 Linux from the same release pipeline.
 //!
 //! Lifecycle: launch → password → vault unseals into staging/ → the slash shell
 //! runs → exit seals everything back into the encrypted vault.
