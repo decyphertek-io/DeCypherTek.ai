@@ -59,8 +59,8 @@
 # Prod-Build output; Experimental = the newest dev-adminotaur prerelease.
 # Non-interactive runs take Production; pre-pick with `bash -s --
 # experimental` or DCT_CHANNEL=experimental.)
-# Removal, when you want it: scripts/uninstall.sh (vault kept unless
-# --purge).
+# Removal, when you want it: scripts/uninstall.sh — removes the agent
+# and its encrypted memory in one go (no flags).
 set -euo pipefail
 
 REPO="decyphertek-io/DeCypherTek.ai"
@@ -400,8 +400,8 @@ fetch_release() {
 # ---------------------------------------------------------------- install
 # ONE folder everywhere: the binary lives in ~/.decyphertek.ai/bin — the
 # same ~/.decyphertek.ai that will hold vault.dct and staging/, so
-# program + encrypted data is a single directory: an uninstall without
-# --purge removes bin/ and keeps the vault; --purge removes everything.
+# program + encrypted data is a single directory — and uninstalling is
+# one step that removes all of it.
 fetch_release
 DEST_BIN="$DATA_DIR/bin"
 mkdir -p "$DEST_BIN"

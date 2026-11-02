@@ -42,14 +42,10 @@ While a task runs the screen shows one line; when it finishes you get one report
 
 ## Uninstall
 
+One command removes everything — the program, the encrypted memory vault, every trace in your home folder:
+
 ```bash
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash
-```
-
-Removes the program; the encrypted memory vault is kept. Wipe the memory too with `--purge`:
-
-```bash
-curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash -s -- --purge
 ```
 
 ## About — what it can do
