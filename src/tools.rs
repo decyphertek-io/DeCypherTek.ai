@@ -35,11 +35,11 @@ pub struct ToolCtx<'a> {
 
 pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
     let mut out = vec![
-        tool_spec("memory_search", "Search the agent's RAG memory (docs you gave it, past learnings, past chat logs) for relevant knowledge.", json_obj(&[("query", "string")])),
+        tool_spec("memory_search", "Search the agent's vector memory (wiki pages, ingested docs, uploads, learnings, past runs) for relevant knowledge — deep, fast recall.", json_obj(&[("query", "string")])),
         tool_spec("remember", "Store a lasting learning into memory. Use whenever something new and useful was learned — keep it under 1200 chars, one focused fact/skill per call.", json_obj(&[("knowledge", "string")])),
         tool_spec("list_wiki", "List pages of the agent's memory wiki (markdown).", json_obj(&[])),
-        tool_spec("read_wiki", "Read one page of the agent's memory wiki.", json_obj(&[("name", "string")])),
-        tool_spec("write_wiki", "Write or update a page in the agent's memory wiki, e.g. memory-<topic>. Content is markdown.", json_obj(&[("name", "string"), ("content", "string")])),
+        tool_spec("read_wiki", "Read one page of the agent's memory wiki. `memory-index` is the memory directory — a map of where knowledge lives; read it first when unsure.", json_obj(&[("name", "string")])),
+        tool_spec("write_wiki", "Write or update a page in the agent's memory wiki, e.g. memory-<topic>. Content is markdown. The page is chunked and indexed into vector memory immediately, so every future run (and memory_search) can find it.", json_obj(&[("name", "string"), ("content", "string")])),
     ];
     if cfg.tool_read_files || cfg.is_unleashed() {
         out.push(tool_spec(
@@ -187,7 +187,16 @@ pub fn run(ctx: &mut ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) ->
             Err(e) => e.to_string(),
         },
         "write_wiki" => match crate::wiki::write(ctx.paths, &get("name"), &get("content")) {
-            Ok(n) => format!("wiki page '{n}' written"),
+            Ok(n) => {
+                // The page becomes vector memory immediately — the wiki
+                // never depends on a later re-index to be recallable.
+                let note = match crate::wiki::sync_page(ctx.paths, ctx.vectors, &n) {
+                    Ok(_) => ", indexed into memory".to_string(),
+                    Err(e) => format!(", indexing deferred: {e}"),
+                };
+                let _ = crate::wiki::refresh_index_page(ctx.paths, ctx.vectors);
+                format!("wiki page '{n}' written{note}")
+            }
             Err(e) => e.to_string(),
         },
         "list_dir" => match may_read(ctx.cfg, ctx.paths, &get("path")) {

@@ -158,6 +158,25 @@ fn shell_session(paths: &Paths, key: [u8; 32], salt: [u8; 16]) -> Result<()> {
 
     let mut cfg = config::Config::load(paths).context("load config from vault")?;
     let mut vectors = vector::Vectors::open(&paths.vector_db)?;
+
+    // Memory differential: the wiki (including hand-edited pages) is
+    // re-indexed into vector memory here, so every run starts with a
+    // current, searchable memory — fast vector recall instead of
+    // list-then-read everything. Cheap when nothing changed.
+    let wiki_changed = wiki::refresh_index_page(paths, &vectors)
+        .and_then(|_| wiki::sync_index(paths, &vectors))
+        .map(|(_, changed)| changed)
+        .unwrap_or(0);
+    if wiki_changed > 0 {
+        println!(
+            "{}",
+            console::style(format!(
+                "wiki memory re-indexed: {wiki_changed} page(s) changed"
+            ))
+            .dim()
+        );
+    }
+
     let rotated = chatlog::rotate_old_logs(paths)?;
     if rotated.0 > 0 {
         println!(

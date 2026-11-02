@@ -591,15 +591,24 @@ fn upload_docs(paths: &Paths, vectors: &mut Vectors) -> Result<()> {
             Ok(dest) => match std::fs::copy(file, &dest) {
                 Ok(_) => match std::fs::read_to_string(&dest) {
                     Ok(text) => {
-                        let (chunks, added) =
-                            vectors.insert_text(&format!("info/{raw_name}"), "info-doc", &text)?;
-                        tui::info(
-                            "UPLOAD",
-                            &format!(
-                                "{raw_name} → info/ — {added} of {chunks} chunks into RAG \
-                                 (readable via memory and @wiki read info/{raw_name})"
-                            ),
-                        );
+                        // Differential: re-uploading a same-named file
+                        // replaces its chunks instead of duplicating them.
+                        let name = dest
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let msg =
+                            match vectors.sync_source(&format!("info/{name}"), "info-doc", &text) {
+                                Ok(crate::vector::SyncOutcome::Changed { chunks, added }) => {
+                                    format!(
+                                        "{name} → info/ — {added} of {chunks} chunks indexed \
+                                     into RAG (readable via memory and @wiki read info/{name})"
+                                    )
+                                }
+                                _ => format!("{name} → info/ — unchanged, memory already current"),
+                            };
+                        tui::info("UPLOAD", &msg);
                     }
                     Err(_) => tui::warn(
                         "UPLOAD",
@@ -614,6 +623,7 @@ fn upload_docs(paths: &Paths, vectors: &mut Vectors) -> Result<()> {
             Err(e) => tui::error(&format!("bad file name '{raw_name}': {e}")),
         }
     }
+    let _ = crate::wiki::refresh_index_page(paths, vectors);
     Ok(())
 }
 

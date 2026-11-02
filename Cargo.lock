@@ -231,6 +231,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
+ "cc",
  "chrono",
  "console",
  "dialoguer",
