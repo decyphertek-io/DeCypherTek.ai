@@ -10,8 +10,10 @@ pub enum Provider {
     Ollama,
 }
 /// One registered MCP tool server (installed via /mcp). The agent runs
-/// these in hardened containers that talk ONLY to the agent over
-/// stdio — no network, no capabilities (see src/mcp.rs).
+/// these in hardened containers — no capabilities, nothing published,
+/// stdio-only. Outbound internet lets API-backed servers (GitHub,
+/// Slack, fetch…) actually reach their APIs; `network_isolated`
+/// opts one back into `--network=none` (see src/mcp.rs).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpServer {
     /// Short handle, e.g. "github" — tools surface as `mcp_<name>_<tool>`.
@@ -35,6 +37,13 @@ pub struct McpServer {
     pub allow_code: bool,
     #[serde(default = "default_true")]
     pub allow_research: bool,
+    /// Fully network-isolated launch (`--network=none`) — for servers
+    /// that never need internet (filesystem, sqlite, memory, time).
+    /// Defaults to false: API-backed servers (GitHub, Slack, fetch…)
+    /// are useless without outbound internet. Vaults saved before the
+    /// field existed load as false.
+    #[serde(default)]
+    pub network_isolated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -14,9 +14,13 @@
 //!   store string-matched docker's success words and mislabeled every
 //!   podman pull a failure).
 //! - The secure launch TEMPLATE stays: every registered server runs in
-//!   a hardened container (`--network=none`, all capabilities dropped,
-//!   no-new-privileges, memory/pid caps, stdio-only). Its ONLY channel
-//!   to the world is the stdio pipe the agent holds.
+//!   a hardened container (all capabilities dropped, no-new-privileges,
+//!   memory/pid caps, stdio-only, nothing published) with outbound
+//!   internet — GitHub, Slack and every other API-backed server is
+//!   useless without it. Servers that never need the web (filesystem,
+//!   sqlite, memory, time) can opt into `--network=none` per server.
+//!   Its inbound channel to the world is the stdio pipe the agent
+//!   holds; it cannot publish ports or reach the LAN.
 //! - A minimal MCP client (JSON-RPC 2.0 over stdio): initialize,
 //!   tools/list, tools/call. Registered servers spawn per agent run —
 //!   only in modes their permissions allow — and their tools merge into
@@ -160,17 +164,21 @@ fn runtime() -> Result<&'static str> {
 }
 
 /// THE secure launch template: every MCP server runs with this. The
-/// sales line is security, not convenience — a server may only ever
-/// communicate internally, with the agent over stdio:
-/// - `--network=none`: no network at all — no callbacks, no exfil, no LAN.
+/// sales line is security, not convenience — a server talks to the
+/// agent over stdio, keeps zero capabilities, and publishes nothing:
+/// - outbound internet — API-backed servers (GitHub, Slack, Brave,
+///   fetch, …) cannot work cut off from the web; DNS+HTTPS out only
+///   reduces what they can do, not what they can reach in.
+/// - `--network=none` OPT-IN per server (`network_isolated`): for
+///   servers that never need the web (filesystem, sqlite, memory,
+///   time) — then no network at all, no callbacks, no exfil, no LAN.
 /// - `--cap-drop=ALL` + `--security-opt=no-new-privileges`: zero superuser
 ///   capabilities, no privilege escalation inside or out.
 /// - `--memory/--pids-limit`: one server cannot starve the phone/host.
 /// - `-i --rm`: stdio pipe in/out, container dies with the session.
 /// - no published ports: nothing on the machine can reach it.
-pub fn secure_run_args() -> Vec<String> {
-    const ALL: [&str; 8] = [
-        "--network=none",
+pub fn secure_run_args(network_isolated: bool) -> Vec<String> {
+    const HARDENED: [&str; 7] = [
         "--cap-drop=ALL",
         "--security-opt=no-new-privileges",
         "--memory=512m",
@@ -179,7 +187,11 @@ pub fn secure_run_args() -> Vec<String> {
         "-i",
         "--rm",
     ];
-    ALL.iter().map(|s| s.to_string()).collect()
+    let mut args: Vec<String> = HARDENED.iter().map(|s| s.to_string()).collect();
+    if network_isolated {
+        args.push("--network=none".to_string());
+    }
+    args
 }
 
 /// Repository of an image ref with the tag stripped — a colon only
@@ -358,6 +370,7 @@ fn register(cfg: &mut Config, entry: &StoreEntry) -> usize {
         allow_chat: true,
         allow_code: true,
         allow_research: true,
+        network_isolated: false,
     });
     cfg.mcp_servers.len() - 1
 }
@@ -410,10 +423,11 @@ pub fn mcp(cfg: &mut Config, paths: &Paths, query: &str) -> Result<()> {
         &format!(
             "Registered servers: {enabled} enabled / {} total. Search pulls \
              an image and then walks setup — env keys (hidden, vault-sealed), \
-             mode permissions (/chat, /code, /research), and a verification \
-             launch. Secure template on every launch: --network=none, all \
-             capabilities dropped, stdio-only — servers talk to the agent and \
-             nothing else.{runtime_note}",
+             network reach (outbound internet or fully isolated), mode \
+             permissions (/chat, /code, /research), and a verification \
+             launch. Secure template on every launch: all capabilities \
+             dropped, stdio-only, nothing published — servers talk to the \
+             agent; internet reach is opt-out per server.{runtime_note}",
             cfg.mcp_servers.len()
         ),
     );
@@ -453,8 +467,9 @@ pub fn mcp(cfg: &mut Config, paths: &Paths, query: &str) -> Result<()> {
         "MCP",
         &format!(
             "Registered MCP servers: {count} enabled / {} total. They run \
-             hardened (network=none, cap-drop=ALL), stdio-only, on the agent's \
-             terms. Live view: /status — manage any time: /mcp.",
+             hardened (cap-drop=ALL, stdio-only, nothing published; outbound \
+             internet unless a server opts into --network=none), on the \
+             agent's terms. Live view: /status — manage any time: /mcp.",
             cfg.mcp_servers.len()
         ),
     );
@@ -618,9 +633,10 @@ fn detail_and_act(
     tui::info(
         "MCP SERVER",
         &format!(
-            "{}\n{} · {}{}\n\n{}\n\n{}security template: --network=none, \
-             --cap-drop=ALL, no-new-privileges, stdio-only — the server can \
-             only answer the agent, never reach out.",
+            "{}\n{} · {}{}\n\n{}\n\n{}security template: --cap-drop=ALL, \
+             no-new-privileges, stdio-only, nothing published, outbound \
+             internet (a server must reach its APIs) — or fully \
+             --network=none when set up that way.",
             entry.image,
             entry.origin.label(),
             if reg_idx.is_some() { "registered" } else { "not registered" },
@@ -726,9 +742,10 @@ fn detail_and_act(
 }
 
 /// The question chain that makes a registration actually work: handle
-/// name, required env keys (hidden input), extra env keys, mode
-/// permissions, and an optional smoke test that launches the container
-/// and lists its tools.
+/// name, required env keys (hidden input), extra env keys, network
+/// reach (outbound internet or fully isolated), mode permissions, and
+/// an optional smoke test that launches the container and lists its
+/// tools.
 fn guided_setup(
     cfg: &mut Config,
     paths: &Paths,
@@ -824,11 +841,31 @@ fn guided_setup(
         }
     }
 
-    // 4. Mode permissions — /chat, /code, /research. Routing prefs,
+    // 4. Network reach. Outbound internet is what makes API-backed
+    //    servers (GitHub, Slack, Brave, fetch…) worth running — they
+    //    call web APIs. `--network=none` fits servers that never need
+    //    the web (filesystem, sqlite, memory, time). Defaults to
+    //    outbound: a cut-off server "launches and answers" but no
+    //    tool call can ever leave the container.
+    let reach = Select::with_theme(theme)
+        .with_prompt("Network reach for this server")
+        .items(&[
+            "Outbound internet — it calls web APIs (GitHub, Slack, fetch…)",
+            "Fully isolated — no network at all, --network=none (filesystem, sqlite, memory…)",
+        ])
+        .default(if cfg.mcp_servers[idx].network_isolated {
+            1
+        } else {
+            0
+        })
+        .interact()?;
+    cfg.mcp_servers[idx].network_isolated = reach == 1;
+
+    // 5. Mode permissions — /chat, /code, /research. Routing prefs,
     //    not the security leash (that is tool_mcp + the Leash).
     set_mode_permissions(cfg, idx, theme);
 
-    // 5. Verify: the honest answer to "does it actually work?".
+    // 6. Verify: the honest answer to "does it actually work?".
     if Confirm::with_theme(theme)
         .with_prompt("Verify now? (launches the hardened container and lists its tools)")
         .default(true)
@@ -857,14 +894,21 @@ fn set_mode_permissions(cfg: &mut Config, idx: usize, theme: &ColorfulTheme) {
 
 /// Verify and print the outcome with guidance on failure.
 fn verify_with_hint(cfg: &mut Config, paths: &Paths, idx: usize) {
+    let isolated = cfg.mcp_servers[idx].network_isolated;
     match verify_server(&paths.staging, &cfg.mcp_servers[idx]) {
         Ok(report) => tui::info("MCP", &report),
         Err(e) => tui::warn(
             "MCP",
             &format!(
                 "Verify failed: {e:#}\nMost common causes: a missing API key \
-                 (set it: /mcp → Setup), a wrong image tag, or the container \
-                 runtime being down."
+                 (set it: /mcp → Setup), a wrong image tag{}, or the container \
+                 runtime being down.",
+                if isolated {
+                    ", no outbound internet (this server is network-isolated — \
+                     /mcp can give it internet reach)"
+                } else {
+                    ""
+                }
             ),
         ),
     }
@@ -886,9 +930,15 @@ fn verify_server(staging: &Path, server: &McpServer) -> Result<String> {
             if names.is_empty() {
                 return format!(
                     "{} launched and answered, but advertises no tools — \
-                     the image may need env keys (/mcp → Setup) or a \
-                     different container entrypoint.",
-                    server.name
+                     the image may need env keys (/mcp → Setup), a \
+                     different container entrypoint{}.",
+                    server.name,
+                    if server.network_isolated {
+                        ", or internet it cannot reach while fully \
+                         network-isolated (/mcp → Setup can change that)"
+                    } else {
+                        ""
+                    }
                 );
             }
             let handle = sanitize_server_name(&server.name);
@@ -951,10 +1001,10 @@ fn manage_flow(cfg: &mut Config, paths: &Paths, theme: &ColorfulTheme) -> Result
 }
 
 /// One readable management row: state, handle, image, modes, key NAMES
-/// (never values).
+/// (never values), network reach when it is the exception.
 fn server_line(s: &McpServer) -> String {
     format!(
-        "[{}] {} — {} (chat {} · code {} · research {} · keys: {})",
+        "[{}] {} — {} (chat {} · code {} · research {} · keys: {}{})",
         if s.enabled { "on " } else { "off" },
         s.name,
         s.image,
@@ -965,6 +1015,11 @@ fn server_line(s: &McpServer) -> String {
             "none".to_string()
         } else {
             s.env.keys().cloned().collect::<Vec<_>>().join(", ")
+        },
+        if s.network_isolated {
+            " · net: isolated"
+        } else {
+            ""
         }
     )
 }
@@ -980,10 +1035,11 @@ fn yn(b: bool) -> &'static str {
 fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme) -> Result<()> {
     let s = cfg.mcp_servers[idx].clone();
     let actions = vec![
-        "Walk the full setup again (keys + permissions + verify)",
+        "Walk the full setup again (keys + network + permissions + verify)",
         "Add or replace an env key (NAME=VALUE)",
         "Remove an env key",
         "Permissions (/chat /code /research)",
+        "Network reach (outbound internet / fully isolated)",
         "Rename the server handle",
         "Toggle enable/disable",
         "Update image (pull latest)",
@@ -1040,6 +1096,36 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
         }
         3 => set_mode_permissions(cfg, idx, theme),
         4 => {
+            let reach = Select::with_theme(theme)
+                .with_prompt(format!(
+                    "Network reach for '{}' — API-backed servers need outbound",
+                    s.name
+                ))
+                .items(&[
+                    "Outbound internet — it calls web APIs (GitHub, Slack, fetch…)",
+                    "Fully isolated — no network at all, --network=none (filesystem, sqlite, memory…)",
+                ])
+                .default(if s.network_isolated { 1 } else { 0 })
+                .interact()?;
+            cfg.mcp_servers[idx].network_isolated = reach == 1;
+            tui::info(
+                "MCP",
+                &if reach == 1 {
+                    format!(
+                        "{} runs fully network-isolated from its next launch — \
+                         only choose this for servers that never need the web.",
+                        s.name
+                    )
+                } else {
+                    format!(
+                        "{} gets outbound internet from its next launch — it \
+                         can reach the APIs it needs, still publishes nothing.",
+                        s.name
+                    )
+                },
+            );
+        }
+        5 => {
             let name: String = Input::with_theme(theme)
                 .with_prompt("Server handle (its tools become mcp_<handle>_<tool>)")
                 .default(s.name.clone())
@@ -1062,7 +1148,7 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
                 }
             }
         }
-        5 => {
+        6 => {
             cfg.mcp_servers[idx].enabled = !s.enabled;
             if cfg.mcp_servers[idx].enabled {
                 tui::info("MCP", &format!("{} enabled.", s.name));
@@ -1073,15 +1159,15 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
                 );
             }
         }
-        6 => match runtime() {
+        7 => match runtime() {
             Ok(cli) => match pull_image(cli, &s.image) {
                 Ok(()) => tui::info("MCP", "Image updated — the server relaunches fresh on its next run."),
                 Err(e) => tui::error(&format!("pull failed: {e:#}")),
             },
             Err(e) => tui::error(&e.to_string()),
         },
-        7 => verify_with_hint(cfg, paths, idx),
-        8 => {
+        8 => verify_with_hint(cfg, paths, idx),
+        9 => {
             if Confirm::with_theme(theme)
                 .with_prompt(format!("Remove '{}' from the vault? (image kept on disk)", s.name))
                 .default(false)
@@ -1108,6 +1194,9 @@ pub struct McpChild {
     reader: BufReader<ChildStdout>,
     next_id: u64,
     pub tools: Vec<McpTool>,
+    /// This launch's network state, only for honest tool descriptions
+    /// (the container itself was started with it in secure_run_args).
+    pub network_isolated: bool,
     /// The 0600 env-file this launch was given (secrets never ride in
     /// argv); removed with the container.
     env_file: Option<PathBuf>,
@@ -1121,55 +1210,15 @@ pub struct McpTool {
     pub input_schema: Value,
 }
 
-impl McpChild {
-    /// Launch a container under the security template (plus the server's
-    /// env keys via a 0600 --env-file) and do the MCP handshake.
-    pub fn spawn(server: &McpServer, staging: &Path) -> Result<McpChild> {
-        let cli = runtime_cli().ok_or_else(|| {
-            anyhow!("no container runtime found — install docker or podman first")
-        })?;
-        let mut cmd = Command::new(cli);
-        cmd.arg("run").args(secure_run_args());
-        let env_file = write_env_file(server, staging)?;
-        if let Some(p) = &env_file {
-            // Secrets ride in a 0600 file inside staging (the area that
-            // is decrypted while the session runs and re-sealed on
-            // exit), never in argv where ps could read them.
-            cmd.arg("--env-file").arg(p);
-        }
-        cmd.arg(&server.image)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("{cli} run {} (is the runtime up?)", server.image))?;
-        let writer = child.stdin.take().context("container stdin pipe")?;
-        let reader = BufReader::new(child.stdout.take().context("container stdout pipe")?);
-        let mut m = McpChild {
-            server: server.name.clone(),
-            image: server.image.clone(),
-            child,
-            writer,
-            reader,
-            next_id: 3,
-            tools: Vec::new(),
-            env_file,
-        };
-
-        m.rpc_call(
-            "initialize",
-            json!({
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": { "name": "decyphertek", "version": env!("CARGO_PKG_VERSION") }
-            }),
-        )?;
-        m.notify("notifications/initialized");
-        let tools = m.rpc_call("tools/list", json!({}))?;
-        if let Some(list) = tools.pointer("/params/tools").and_then(|t| t.as_array()) {
-            m.tools = list
-                .iter()
+/// A tools/list JSON-RPC response → its tools. Responses carry the
+/// payload top-level under `result`; `params` is a REQUEST field —
+/// reading `/params/tools` made every server on earth "advertise no
+/// tools" while their containers shipped 100+ of them.
+fn tools_from_response(resp: &Value) -> Vec<McpTool> {
+    resp.pointer("/result/tools")
+        .and_then(|tools| tools.as_array())
+        .map(|list| {
+            list.iter()
                 .filter_map(|t| {
                     let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     if name.is_empty() {
@@ -1189,8 +1238,81 @@ impl McpChild {
                             .unwrap_or_else(|| json!({"type": "object", "properties": {}})),
                     })
                 })
-                .collect();
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A tools/call JSON-RPC response → (isError, joined text content).
+/// Same JSON-RPC shape: the tool's result lives under `result`, never
+/// `params` (the old `/params/result/…` pointers always read empty).
+fn call_result(resp: &Value) -> (bool, String) {
+    let is_error = resp
+        .pointer("/result/isError")
+        .and_then(|e| e.as_bool())
+        .unwrap_or(false);
+    let text = resp
+        .pointer("/result/content")
+        .and_then(|c| c.as_array())
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    (is_error, text)
+}
+
+impl McpChild {
+    /// Launch a container under the security template (plus the server's
+    /// env keys via a 0600 --env-file) and do the MCP handshake.
+    pub fn spawn(server: &McpServer, staging: &Path) -> Result<McpChild> {
+        let cli = runtime_cli().ok_or_else(|| {
+            anyhow!("no container runtime found — install docker or podman first")
+        })?;
+        let mut cmd = Command::new(cli);
+        cmd.arg("run").args(secure_run_args(server.network_isolated));
+        let env_file = write_env_file(server, staging)?;
+        if let Some(p) = &env_file {
+            // Secrets ride in a 0600 file inside staging (the area that
+            // is decrypted while the session runs and re-sealed on
+            // exit), never in argv where ps could read them.
+            cmd.arg("--env-file").arg(p);
         }
+        cmd.arg(&server.image)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("{cli} run {} (is the runtime up?)", server.image))?;
+        let writer = child.stdin.take().context("container stdin pipe")?;
+        let reader = BufReader::new(child.stdout.take().context("container stdout pipe")?);
+        let mut m = McpChild {
+            server: server.name.clone(),
+            image: server.image.clone(),
+            network_isolated: server.network_isolated,
+            child,
+            writer,
+            reader,
+            next_id: 3,
+            tools: Vec::new(),
+            env_file,
+        };
+
+        m.rpc_call(
+            "initialize",
+            json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "decyphertek", "version": env!("CARGO_PKG_VERSION") }
+            }),
+        )?;
+        m.notify("notifications/initialized");
+        let list_resp = m.rpc_call("tools/list", json!({}))?;
+        m.tools = tools_from_response(&list_resp);
         Ok(m)
     }
 
@@ -1254,21 +1376,7 @@ impl McpChild {
         let args: Value = serde_json::from_str(args_json).unwrap_or(Value::Null);
         match self.rpc_call("tools/call", json!({ "name": tool, "arguments": args })) {
             Ok(v) => {
-                let is_error = v
-                    .pointer("/params/result/isError")
-                    .and_then(|e| e.as_bool())
-                    .unwrap_or(false);
-                let text = v
-                    .pointer("/params/result/content")
-                    .and_then(|c| c.as_array())
-                    .map(|parts| {
-                        parts
-                            .iter()
-                            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    })
-                    .unwrap_or_default();
+                let (is_error, text) = call_result(&v);
                 if text.is_empty() {
                     return format!("MCP tool {} answered with no text content.", tool);
                 }
@@ -1387,8 +1495,14 @@ pub fn spawn_pool(cfg: &Config, paths: &Paths, mode: &str) -> (Vec<McpChild>, Ve
                 if child.tools.is_empty() {
                     warnings.push(format!(
                         "MCPS: {} '{}' came up but advertises no tools — \
-                         image may need env keys (/mcp → Setup).",
-                        s.name, s.image
+                         image may need env keys (/mcp → Setup){}.",
+                        s.name,
+                        s.image,
+                        if s.network_isolated {
+                            " or internet while fully network-isolated"
+                        } else {
+                            ""
+                        }
                     ));
                 }
                 pool.push(child);
@@ -1419,13 +1533,19 @@ pub fn pool_specs(pool: &[McpChild]) -> Vec<crate::models::ToolSpec> {
                 function: crate::models::ToolFn {
                     name,
                     description: format!(
-                        "[mcp server: {} @ {}] {} — the container has no network; it only answers the agent.",
+                        "[mcp server: {} @ {}] {} — hardened container ({}); \
+                         it cannot publish ports.",
                         child.server,
                         child.image,
                         if tool.description.trim().is_empty() {
                             "MCP tool"
                         } else {
                             &tool.description
+                        },
+                        if child.network_isolated {
+                            "no network, answers the agent only"
+                        } else {
+                            "outbound internet for its API calls"
                         }
                     ),
                     parameters: tool.input_schema.clone(),
@@ -1500,6 +1620,7 @@ mod tests {
             allow_chat: true,
             allow_code: true,
             allow_research: true,
+            network_isolated: false,
         }
     }
 
@@ -1536,25 +1657,110 @@ mod tests {
     }
 
     #[test]
-    fn secure_template_truly_isolates() {
-        let args = secure_run_args();
+    fn secure_template_hardens_both_network_modes() {
+        // Outbound (default): API-backed servers need the web, but the
+        // template still drops every capability, caps resources and
+        // publishes nothing.
+        let out = secure_run_args(false);
         assert!(
-            args.contains(&"--network=none".to_string()),
-            "no network, ever"
+            !out.contains(&"--network=none".to_string()),
+            "outbound is the default — network=none starves GitHub/Slack/fetch"
         );
-        assert!(args.contains(&"--cap-drop=ALL".to_string()));
-        assert!(args.contains(&"--security-opt=no-new-privileges".to_string()));
+        assert!(out.contains(&"--cap-drop=ALL".to_string()));
+        assert!(out.contains(&"--security-opt=no-new-privileges".to_string()));
         assert!(
-            args.contains(&"--rm".to_string()),
+            out.contains(&"--rm".to_string()),
             "container dies with the session"
         );
         assert!(
-            args.contains(&"-i".to_string()),
+            out.contains(&"-i".to_string()),
             "stdio is the only channel"
         );
-        // the template never publishes ports
-        assert!(!args.iter().any(|a| a.starts_with("-p")));
-        assert!(!args.iter().any(|a| a.starts_with("--publish")));
+
+        // Isolated opt-in: same hardening plus no network at all.
+        let iso = secure_run_args(true);
+        assert!(iso.contains(&"--network=none".to_string()));
+        for a in &out {
+            assert!(iso.contains(a), "isolated keeps every other flag: {a}");
+        }
+
+        // neither mode ever publishes ports
+        for args in [&out, &iso] {
+            assert!(!args.iter().any(|a| a.starts_with("-p")));
+            assert!(!args.iter().any(|a| a.starts_with("--publish")));
+        }
+    }
+
+    #[test]
+    fn tools_list_response_is_read_from_result_not_params() {
+        // A real tools/list response (JSON-RPC 2.0): the payload sits
+        // top-level under `result`; `params` is a request field. The
+        // client that read /params/tools saw every server "advertise
+        // no tools" — this is that regression, held forever.
+        let resp = json!({
+            "jsonrpc": "2.0", "id": 4,
+            "result": { "tools": [
+                {
+                    "name": "search_issues",
+                    "description": "Search across issues",
+                    "inputSchema": { "type": "object", "properties": {
+                        "q": { "type": "string" }
+                    }}
+                },
+                { "name": "get_me", "description": "" }
+            ]}
+        });
+        let tools = tools_from_response(&resp);
+        assert_eq!(tools.len(), 2, "both tools must be found: got {tools:?}");
+        assert_eq!(tools[0].name, "search_issues");
+        assert_eq!(tools[0].description, "Search across issues");
+        assert!(tools[0].input_schema.is_object());
+        assert_eq!(tools[1].name, "get_me", "tool with no inputSchema still lists");
+        assert!(
+            tools[1].input_schema["type"] == "object",
+            "missing schema becomes a benign empty object"
+        );
+
+        // a name-less entry or empty list must not crash or invent tools
+        assert!(tools_from_response(&json!({ "result": {} })).is_empty());
+        assert!(tools_from_response(&json!({})).is_empty());
+        assert!(
+            tools_from_response(&json!({ "result": { "tools": [ { "description": "x" } ] } }))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn call_results_are_read_from_result_not_params() {
+        let ok = json!({
+            "jsonrpc": "2.0", "id": 5,
+            "result": { "isError": false, "content": [
+                { "type": "text", "text": "issue #7 open" },
+                { "type": "text", "text": "issue #8 closed" }
+            ]}
+        });
+        assert_eq!(
+            call_result(&ok),
+            (false, "issue #7 open\nissue #8 closed".to_string())
+        );
+
+        let err = json!({
+            "jsonrpc": "2.0", "id": 6,
+            "result": { "isError": true, "content": [
+                { "type": "text", "text": "network unreachable" }
+            ]}
+        });
+        assert_eq!(
+            call_result(&err),
+            (true, "network unreachable".to_string()),
+            "isError rides next to the content"
+        );
+
+        // no content at all → empty text, not a panic
+        assert_eq!(
+            call_result(&json!({ "result": {} })),
+            (false, String::new())
+        );
     }
 
     #[test]
@@ -1643,8 +1849,8 @@ mod tests {
         assert!(migrated.mcp_servers.is_empty());
         assert!(migrated.tool_mcp, "mcp gate defaults on");
 
-        // older registrations (no env / permission fields) load with
-        // keys empty and every mode allowed
+        // older registrations (no env / permission / network fields)
+        // load with keys empty, every mode allowed and outbound net
         let mut older = old.clone();
         older["mcp_servers"] = serde_json::json!([
             { "name": "time", "image": "mcp/time", "enabled": true, "added": "" }
@@ -1656,6 +1862,11 @@ mod tests {
         assert!(m2.mcp_servers[0].allow_code);
         assert!(m2.mcp_servers[0].allow_research);
         assert!(m2.mcp_servers[0].env.is_empty());
+        assert!(
+            !m2.mcp_servers[0].network_isolated,
+            "pre-field vaults upgrade to outbound internet — registered \
+             GitHub & friends start actually working, no re-setup needed"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1801,7 +2012,7 @@ mod tests {
             .expect("non-empty env must produce a file");
         let body = std::fs::read_to_string(&p).unwrap();
         assert_eq!(body, "A_TOKEN=x=1\nB_TOKEN=two words\n");
-        assert!(p.ends_with("mcp-github.env"), "{p}");
+        assert!(p.ends_with("mcp-github.env"), "{}", p.display());
 
         // empty env map → no file, no secret landing on disk
         let none = srv("time", "mcp/time");
@@ -1819,7 +2030,14 @@ mod tests {
         let line = server_line(&s);
         assert!(line.contains("GITHUB_PERSONAL_ACCESS_TOKEN"), "{line}");
         assert!(!line.contains("ghp_super_secret"), "{line}");
-        assert!(line.contains("[on]"), "{line}");
+        assert!(line.contains("[on ]"), "{line}");
+        assert!(
+            !line.contains("net: isolated"),
+            "outbound is the silent default: {line}"
+        );
+        s.network_isolated = true;
+        let line = server_line(&s);
+        assert!(line.contains("net: isolated"), "{line}");
     }
 
     #[test]
@@ -1859,7 +2077,7 @@ mod tests {
         let call = json!({ "name": "search", "arguments": { "q": "x" } });
         assert_eq!(call["arguments"]["q"], "x");
 
-        // tools/list response → tools array parsing
+        // tools/list response → through the REAL client parser
         let resp = json!({
             "jsonrpc": "2.0", "id": 2,
             "result": { "tools": [ {
@@ -1868,26 +2086,16 @@ mod tests {
                 "inputSchema": { "type": "object", "properties": { "q": { "type": "string" } } }
             }]}
         });
-        let tools = resp.pointer("/result/tools").unwrap().as_array().unwrap();
-        assert_eq!(tools[0]["name"], "search");
-        assert!(tools[0]["inputSchema"].is_object());
+        let tools = tools_from_response(&resp);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "search");
+        assert!(tools[0].input_schema.is_object());
 
-        // tools/call result → text content join
+        // tools/call result → through the REAL client parser
         let out = json!({
             "jsonrpc": "2.0", "id": 3,
             "result": { "isError": false, "content": [ { "type": "text", "text": "42" } ] }
         });
-        let text: String = out
-            .pointer("/result/content")
-            .and_then(|c| c.as_array())
-            .map(|parts| {
-                parts
-                    .iter()
-                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-        assert_eq!(text, "42");
+        assert_eq!(call_result(&out), (false, "42".to_string()));
     }
 }
