@@ -1,7 +1,5 @@
 /target
 /dist
-/engine
-/qemu-android-build
 tmp/
 *.dct
 *.tar.gz
