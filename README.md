@@ -29,7 +29,7 @@ From that prompt, your terminal stays a terminal — anything without a `/` runs
 | `/research <topic>` | Web research — ends in a written report with sources |
 | `/rag <folder> *` | Index every document in the folder — PDF, Word (.docx/.doc), EPUB, text, code — and grant read |
 | `/rag <folder> <file>` | Index one document by name |
-| `/mcp` | Search & add MCP tool servers — pull, set API keys and which modes (`/chat` `/code` `/research`) may use them, verify the launch |
+| `/mcp` | Find and install tool servers for the AI — it downloads the server, asks for any keys it needs (hidden typing), lets you pick which commands (`/chat` `/code` `/research`) may use it, and tests it |
 | `/status` | Current brain, permissions, memory size |
 | `/setup` | Re-open the setup wizard (any setting, anytime) |
 | `/password` | Change the vault password |

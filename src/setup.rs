@@ -429,8 +429,9 @@ fn choose_leash_and_tools(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()>
              + wiki · use its own ~/.decyphertek.ai\n\
              CAN (only if you enable it below — SPACE toggles): search the web · \
              read files in granted folders · write files in granted folders · \
-             run shell commands (each asks y/N first) · run MCP tool servers \
-             from /mcp (docker; hardened, internal-only)\n\
+             run shell commands (each asks y/N first) · run tool servers \
+             installed with /mcp (they run cut off from the internet, \
+             answer-only)\n\
              CANNOT: read or write outside granted folders (DENIED, logged) · \
              run a command without your y/N · use anything left off below\n\
              Widen later anytime: /grants read|write <dir> · redo this walk: /setup",
@@ -440,7 +441,7 @@ fn choose_leash_and_tools(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()>
             "read_files — read files in granted folders",
             "write_files — write files in granted folders",
             "run_command — execute shell commands (leashed asks y/N before each)",
-            "mcp_servers — run MCP tool servers from /mcp (docker; hardened, internal-only)",
+            "mcp_servers — run tool servers installed with /mcp (they run cut off from the internet, answer-only)",
         ];
         let defaults = vec![
             cfg.tool_web_search,
@@ -472,7 +473,7 @@ fn confirm_unleashed(theme: &ColorfulTheme) -> Result<bool> {
          • WRITE, change and delete files anywhere your user can write\n\
          • RUN any shell command — no per-command y/N ask anymore\n\
          • SEARCH the web (keyless DuckDuckGo + Wikipedia)\n\
-         • RUN MCP tool servers from /mcp (docker; hardened, network=none, stdio-only)\n\
+         • RUN tool servers installed with /mcp (they run cut off from the internet, answer-only)\n\
          • BUILD subagents that carry this same access\n\n\
          Nothing limits it beyond your user's own permissions — if it \
          misbehaves it can wreck your home directory. It is logged, \

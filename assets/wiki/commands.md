@@ -60,30 +60,31 @@ metadata query API (archive.org/advancedsearch.php).
   vector memory (one memory_search reaches the right chunk), never by
   the agent re-reading whole folders or wasting tokens.
 
-## @mcp — MCP tool servers
+## @mcp — tool servers for the AI
 
-- `@mcp` — a question-driven menu over every MCP server found in
-  Docker, A-Z: the in-binary catalog, a live Docker Hub query, and
-  images already pulled on this machine.
-- **Search for a new MCP server** — pick one, pull it (success is the
-  runtime's exit status plus an image inspect — docker and podman both
-  report honestly), then a short setup walk:
-  - **API keys**: the questions know what the image needs (e.g. GitHub
-    MCP wants `GITHUB_PERSONAL_ACCESS_TOKEN`) — hidden input, values
-    sealed in the encrypted vault, shown masked ever after, injected
-    via a 0600 env-file (never in argv or `ps`).
-  - **Mode permissions**: choose which runs may use the server —
-    `/chat`, `/code`, `/research`, each independently (default: all).
-  - **Verify**: launches the hardened container and lists its tools —
-    before you leave the menu you know it works, and how its tools are
-    named (`mcp_<server>_<tool>`).
-- **Setup an MCP server** — manage what is registered: add/replace or
-  remove keys, permission toggles, rename, enable/disable, update the
-  image, re-verify, remove (the image stays on disk).
-- Registered servers launch with the security template on every
-  allowed run: `--network=none`, `--cap-drop=ALL`,
-  no-new-privileges, stdio-only. A server can only ever answer the
-  agent — it cannot publish ports, reach the LAN, or call out.
+- `@mcp` — a short menu: find a new server, or set up one you already
+  have. The search covers a built-in list, a live Docker Hub scan, and
+  whatever is already downloaded on this machine.
+- **Add a server** — pick one; /mcp downloads it (and tells you plainly
+  whether the download worked — Docker and Podman both), then asks a
+  few plain questions:
+  - **Keys**: if the server needs a sign-in key — GitHub wants your
+    `GITHUB_PERSONAL_ACCESS_TOKEN`, for example — you type it once,
+    hidden. It's saved sealed in your encrypted vault, shown masked
+    ever after, and handed to the server in a protected file (never
+    visible in the process list).
+  - **Which commands can use it**: `/chat`, `/code`, `/research`, each
+    on or off (default: all three).
+  - **A test run**: /mcp starts the server in its locked-down
+    container and shows what it can do. You leave the menu knowing it
+    works, and what its skills are called (`mcp_<server>_<tool>` — the
+    names the AI answers to).
+- **Set up an installed server** — add, change or remove keys; rename
+  it; turn it on or off; update to the newest image; test it again; or
+  remove it (the downloaded copy stays on your machine).
+- Every installed server runs cut off from the internet: no network,
+  no special rights — it can only answer the AI. It cannot publish
+  ports, reach the LAN, or call out.
 
 ## Management
 

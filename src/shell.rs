@@ -26,10 +26,11 @@ slash shell — commands run exactly as typed; /-commands wake the agent.
   /rag <folder> *     index every document in the folder into RAG memory
                        (pdf, doc, docx, epub, text, code…; +read grant)
   /rag <folder> <f>   index one document by name
-  /mcp                MCP tool servers: search & add (pull + keys +
-                       permissions), or set up registered ones —
-                       verifies the launch, sets /chat /code /research
-                       access; servers run hardened, stdio-only
+  /mcp                find and install tool servers for the AI:
+                       search, download, enter keys (hidden typing),
+                       choose which commands (/chat /code /research)
+                       may use it, and test it — every server runs cut
+                       off from the internet
   /grants read <p>    grant a folder to read
   /grants write <p>   grant a folder to write
   /leash <mode>       leashed | unleashed — take the leash on/off
@@ -286,22 +287,17 @@ fn handle(
                 cfg.mcp_servers
                     .iter()
                     .map(|s| {
-                        let keys = if s.env.is_empty() {
-                            "keys: none".to_string()
-                        } else {
-                            format!(
-                                "keys: {} (hidden)",
-                                s.env.keys().cloned().collect::<Vec<_>>().join(", ")
-                            )
-                        };
                         format!(
-                            "{}{} {} — chat {} · code {} · research {} · {keys}",
+                            "{}{} {} — usable by: {} · secrets kept: {}",
                             s.name,
                             if s.enabled { "" } else { " (off)" },
                             s.image,
-                            if s.allow_chat { "y" } else { "n" },
-                            if s.allow_code { "y" } else { "n" },
-                            if s.allow_research { "y" } else { "n" }
+                            crate::mcp::usable_in(s),
+                            if s.env.is_empty() {
+                                "none".to_string()
+                            } else {
+                                s.env.keys().cloned().collect::<Vec<_>>().join(", ")
+                            }
                         )
                     })
                     .collect::<Vec<_>>()
