@@ -138,9 +138,10 @@ pub fn run(
         .timeout_connect(std::time::Duration::from_secs(30))
         .build();
 
-    // MCP tool servers (@store): hardened containers, stdio-only. Any that
-    // fail to launch become visible warnings instead of silent losses.
-    let (mcp_pool, warnings) = crate::store::spawn_pool(cfg);
+    // MCP tool servers (/mcp): hardened containers, stdio-only, each
+    // scoped to the modes its permissions allow. Any that fail to
+    // launch become visible warnings instead of silent losses.
+    let (mcp_pool, warnings) = crate::mcp::spawn_pool(cfg, paths, mode);
     for w in &warnings {
         log.log("mcp_warning", &truncate(w, 500));
     }
@@ -154,7 +155,7 @@ pub fn run(
         research_sites: research_sites.to_vec(),
     };
     let mut tool_specs = crate::tools::specs(cfg);
-    tool_specs.extend(crate::store::pool_specs(&ctx.mcp));
+    tool_specs.extend(crate::mcp::pool_specs(&ctx.mcp));
 
     let report;
     let mut tool_calls = 0usize;
@@ -223,7 +224,7 @@ pub fn run(
         let _ = vectors.insert_text("chatlog", "chatlog", &chat_text);
     }
 
-    // Registered MCP containers die with the run (Drop in src/store.rs).
+    // Registered MCP containers die with the run (Drop in src/mcp.rs).
     Ok(RunResult { report, warnings })
 }
 

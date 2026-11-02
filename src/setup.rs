@@ -206,7 +206,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
 /// The QUICK install's last question: the Leash, and nothing after it.
 ///
 /// Leashed = the default grants asked zero more times (web search, its
-/// own ~/.decyphertek.ai, MCP store on; writes and shell commands off).
+/// own ~/.decyphertek.ai, MCP servers on; writes and shell commands off).
 /// Unleashed = the full-abilities list, then one informed accept turns
 /// everything on — it can already reach anything, so no further
 /// questions exist. Declining the accept falls back to the defaults.
@@ -246,12 +246,12 @@ fn quick_leash(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
             );
         }
         // Tool flags stay at their defaults: web search + reads + MCP
-        // store on, writes + shell commands off, no folders granted yet.
+        // servers on, writes + shell commands off, no folders granted yet.
         cfg.leash = "leashed".into();
         tui::info(
             "LEASHED — DEFAULTS ON",
             "ON  web search · read + write inside its own ~/.decyphertek.ai · MCP tool \
-             servers from /store\n\
+             servers from /mcp\n\
              OFF write elsewhere · run shell commands — until you grant them\n\
              teach it docs: /rag <folder> * (indexes them into memory + grants READ) · grant more: \
              /grants read|write <dir> · take the leash off: /leash unleashed",
@@ -430,7 +430,7 @@ fn choose_leash_and_tools(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()>
              CAN (only if you enable it below — SPACE toggles): search the web · \
              read files in granted folders · write files in granted folders · \
              run shell commands (each asks y/N first) · run MCP tool servers \
-             from /store (docker; hardened, internal-only)\n\
+             from /mcp (docker; hardened, internal-only)\n\
              CANNOT: read or write outside granted folders (DENIED, logged) · \
              run a command without your y/N · use anything left off below\n\
              Widen later anytime: /grants read|write <dir> · redo this walk: /setup",
@@ -440,7 +440,7 @@ fn choose_leash_and_tools(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()>
             "read_files — read files in granted folders",
             "write_files — write files in granted folders",
             "run_command — execute shell commands (leashed asks y/N before each)",
-            "mcp_servers — run MCP tool servers from /store (docker; hardened, internal-only)",
+            "mcp_servers — run MCP tool servers from /mcp (docker; hardened, internal-only)",
         ];
         let defaults = vec![
             cfg.tool_web_search,
@@ -472,7 +472,7 @@ fn confirm_unleashed(theme: &ColorfulTheme) -> Result<bool> {
          • WRITE, change and delete files anywhere your user can write\n\
          • RUN any shell command — no per-command y/N ask anymore\n\
          • SEARCH the web (keyless DuckDuckGo + Wikipedia)\n\
-         • RUN MCP tool servers from /store (docker; hardened, network=none, stdio-only)\n\
+         • RUN MCP tool servers from /mcp (docker; hardened, network=none, stdio-only)\n\
          • BUILD subagents that carry this same access\n\n\
          Nothing limits it beyond your user's own permissions — if it \
          misbehaves it can wreck your home directory. It is logged, \

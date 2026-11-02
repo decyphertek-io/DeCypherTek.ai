@@ -29,7 +29,7 @@ From that prompt, your terminal stays a terminal — anything without a `/` runs
 | `/research <topic>` | Web research — ends in a written report with sources |
 | `/rag <folder> *` | Index every document in the folder — PDF, Word (.docx/.doc), EPUB, text, code — and grant read |
 | `/rag <folder> <file>` | Index one document by name |
-| `/store` | Browse and add tool servers to the agent |
+| `/mcp` | Search & add MCP tool servers — pull, set API keys and which modes (`/chat` `/code` `/research`) may use them, verify the launch |
 | `/status` | Current brain, permissions, memory size |
 | `/setup` | Re-open the setup wizard (any setting, anytime) |
 | `/password` | Change the vault password |
@@ -58,7 +58,7 @@ curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uni
 - **LLM wiki** — durable knowledge goes into a markdown knowledge base the agent writes and maintains itself: a `memory-index` directory page maps where everything lives, and new pages are auto-indexed into its memory the moment they are written.
 - **Web research** — searches the web and delivers a written report with sources; research can be locked to specific site lists you define.
 - **Hands-on system work** — reads and writes files, runs shell commands, and verifies its own work, reporting exactly what changed.
-- **MCP support** — a whole catalog of extra tool servers (fetch, git, GitHub, Slack, …) can be pulled from its `/store` and run network-isolated; their tools merge into the agent's toolbox.
+- **MCP support** — a whole catalog of extra tool servers (fetch, git, GitHub, Slack, …) can be pulled and set up through `/mcp` — API keys, per-mode permissions, a verify launch — then run network-isolated; their tools merge into the agent's toolbox.
 - **Subagents** — for complex tasks it writes its own subagents: focused worker copies with their own instructions, working the task in parallel under the same leash.
 
 **How it behaves.** While leashed it only does what you granted — folder access you approve, shell commands that ask y/N, tools you enable. Every run is logged in full and reports once: what was asked, what was done, what changed.

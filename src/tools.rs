@@ -24,10 +24,10 @@ pub struct ToolCtx<'a> {
     pub paths: &'a Paths,
     pub vectors: &'a crate::vector::Vectors,
     pub http: ureq::Agent,
-    /// Live MCP tool servers (Docker containers, stdio-only) spawned for
-    /// this run by src/store.rs. Empty unless servers are registered
-    /// (via @store), enabled, and Docker is available.
-    pub mcp: Vec<crate::store::McpChild>,
+    /// Live MCP tool servers (hardened containers, stdio-only) spawned
+    /// for this run by src/mcp.rs. Empty unless servers are registered
+    /// (via /mcp), enabled, allowed in this mode, and a runtime is up.
+    pub mcp: Vec<crate::mcp::McpChild>,
     /// When a research profile is active (@research <name>.yml), web
     /// tools are locked to these sites (hosts or URLs). Empty = free.
     pub research_sites: Vec<String>,
@@ -240,9 +240,9 @@ pub fn run(ctx: &mut ToolCtx, log: &mut ChatLog, name: &str, args_json: &str) ->
             }
         }
         _ => {
-            // MCP tool servers registered via @store: `mcp_<server>_<tool>`.
-            if name.starts_with(crate::store::MCP_TOOL_PREFIX) {
-                crate::store::dispatch(ctx, name, args_json)
+            // MCP tool servers registered via /mcp: `mcp_<server>_<tool>`.
+            if name.starts_with(crate::mcp::MCP_TOOL_PREFIX) {
+                crate::mcp::dispatch(ctx, name, args_json)
             } else {
                 format!("UNKNOWN TOOL: {name}")
             }
