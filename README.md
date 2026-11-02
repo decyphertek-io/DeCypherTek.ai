@@ -1,282 +1,65 @@
 # DeCypherTek.ai
 
-> **Status: v0.1.0 — the first runnable build ships in this repo.**
-> One Rust binary. Linux only — the Podroid Android VM first; if it works there, it works on any aarch64 or x86_64 Linux.
-
-A customizable, self-learning AI agent. It runs as one native Rust executable, wakes from a normal shell only when you type a slash command, remembers what it learns in an encrypted local memory, does research on the web, and reports once, cleanly, in a TUI. Everything it is — config, API keys, memory, forensic logs — lives encrypted in `~/.decyphertek.ai/` and is sealed with a password only you hold.
+An AI that runs your systems — one command to install, entirely on your machine, and it remembers.
 
 *Decoding technology, so you don't have to.*
 
-## Quick Start
+## Install
 
-One install command, everywhere it runs — the **Podroid terminal** (Android: the real Alpine Linux VM its app boots; also works over its SSH) or any **Linux terminal** on x86_64/aarch64. The installer detects which machine it is on and installs the right release, into one folder both times:
+One command. Works on Linux (PCs, servers, ARM boxes) and on Android inside the Podroid Linux VM:
 
 ```bash
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash
 ```
 
-The installer:
+Re-run the same command any time to update.
 
-1. **Detects the machine and installs into ONE folder.** On **Podroid** — the Android app that boots a **real Alpine Linux VM** with its own kernel (a virtual machine, not a translation layer) — the terminal is already inside a Linux machine, so the plain one-folder install runs directly in the VM (Alpine's ash shell reads `~/.profile`, so the `PATH` block lands there as well as in `~/.bashrc`). The VM ships **podman pre-installed and rootless-ready**, and `/store`'s MCP tool servers connect to exactly that: the installer drops a small `docker`→podman shim into the agent's own bin dir (the first `PATH` entry it wires), so every plain `docker` command the agent issues is served by podman — while the VM's own real docker package (`/usr/bin/docker` + dockerd) stays exactly as Podroid shipped it. Everything lands on the persistent ext4 overlay, so the agent, vault and containers survive VM reboots. On any other **Linux** — Debian, Ubuntu, Fedora, Arch, openSUSE, Alpine, on x86_64 or aarch64 — it is the same one folder: the verified release binary (Production stable, or the Experimental dev build) goes into `~/.decyphertek.ai/bin/` — the same folder that already holds the encrypted vault — with `decyphertek.ai` wired onto your `PATH`, plus a best-effort install of **daemonless podman + podman-docker** through the distro's package manager, so `/store`'s MCP containers work with no docker daemon to manage. Anything else — macOS, Windows, Termux, a 32-bit arm — the installer refuses in one line and says exactly why.
-2. **Runs the agent itself at the end of the install** — no separate setup step and no "run this next" hand-off. It detects whether it has been configured (does the vault exist?); if not, a **short first-run wizard** runs right there — just the brain (an OpenRouter key + model from a curated list, or Ollama) and the Leash — and **everything else defaults into the one folder** `~/.decyphertek.ai` (llm wiki, research profiles, RAG memory), so you land in the slash shell with **ADMINOTAUR** — the sysadmin agent that operates the whole system — seconds later. Anything you want different is one command away: **to customize, type `/setup`**. If no release is published yet, it tells you exactly which workflow to run.
-3. Re-run the same command any time to **update** — it asks for the channel again and pulls the matching release.
+## Setup
 
-**Do you want the Production or Experimental branch?** The installer asks exactly that, every run: **Production** (the default — just press Enter) installs the latest stable release, `releases/latest`, the output of the *Prod-Build* workflow; **Experimental** installs the newest dev prerelease published by the `dev-adminotaur` testing branch (its single rolling `v<version>-dev-adminotaur` tag — every push overwrites the previous dev build in place, so there is exactly one; the usaginotsuki channel publishes `v<version>-dev-usaginotsuki` the same way, and the branch-labeled tags mean the two dev channels can never overwrite each other). Non-interactive runs default to Production; pipelines pre-pick a side:
+Follow the setup instructions on first launch: choose a **brain** (an OpenRouter API key for hosted AI, or a local Ollama for a no-cloud setup), pick whether it stays **leashed** (asks permission before it acts), and set the **vault password** that encrypts the agent's memory — everything else just defaults. You land at a `decyphertek.ai:~$` prompt. Type `/help` for the command list; `/setup` re-opens the wizard anytime.
 
-```bash
-curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/install.sh | bash -s -- experimental
-```
+## Commands
 
-```bash
-decyphertek.ai
-```
+Everything you type without a `/` runs in your shell exactly as typed — slash commands wake the agent:
 
-It asks for the **vault password**, decrypts `~/.decyphertek.ai/vault.dct` into memory, and drops you at a classic terminal prompt — `decyphertek.ai:~$` — with nothing else printed. `/setup` opens the customization wizard (brain, memory folders, leash + grants, research profiles) any time.
+| Command | What it does |
+| --- | --- |
+| `/chat <task>` | Talk to it — the full memory backs the conversation |
+| `/code <task>` | Hands-on work — ends with a report of exactly what changed |
+| `/research <topic>` | Research — ends in a written report with sources |
+| `/research <name>.yml <topic>` | Same, searching only the sites of a research profile |
+| `/upload` | Pick files from your Downloads folder — it learns them |
+| `/ingest <folder>` | Teach it every document in a folder |
+| `/store` | Browse and add extra tools for the agent |
+| `/grants read\|write <path>` | Grant access to one of your folders |
+| `/leash leashed\|unleashed` | Take the leash off, or put it back on |
+| `/status` | Current brain, permissions, and memory size |
+| `/wiki list` / `/wiki read <name>` | Browse the agent's knowledge pages |
+| `/setup` | Re-open the setup wizard |
+| `/password` | Change the vault password |
+| `/help` | The full command list |
+| `exit` (or Ctrl-D) | Seal the vault and quit |
+
+While a task runs, the screen stays a single line — then one clean report, and the prompt returns.
 
 ## Uninstall
-
-One command, removing exactly what the installer created — and nothing else:
 
 ```bash
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash
 ```
 
-**Linux (incl. the Podroid VM):** removes the agent's `~/.decyphertek.ai/bin` folder — on Podroid that bin dir is also where the `docker`→podman shim lives, so it goes with it, leaving the VM's own docker untouched — plus its marked `PATH` lines from `~/.bashrc` / `~/.zshrc` (and `~/.profile`, where the installer also writes them on Alpine/Podroid), and any legacy `~/.local/bin/decyphertek.ai` left by earlier installers; packages stay.
-
-The **encrypted vault is kept** — it holds your agent's memory, config and keys. Wipe it too with `--purge`:
+Removes the program; the encrypted memory vault is kept. Wipe the memory too with `--purge`:
 
 ```bash
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash -s -- --purge
 ```
 
-## The Slash Shell
+## About — how it works
 
-The terminal stays a normal terminal, down to its prompt: `decyphertek.ai:~$` — host, path (`~`, `~/…`, absolute), dollar, exactly what a plain Linux session looks like. Everything you type passes straight through to your shell and runs exactly as typed (including a real, persistent `cd` — the path in the prompt follows you), and only slash commands wake the agent (the older `@` prefix still works as an alias):
+**What it is.** DeCypherTek.ai is an AI staff member that lives on your own machine — a phone running the Podroid VM, a PC, or any Linux box. It is one small program with no cloud of its own. You give it a brain of your choosing, and everything it knows and learns stays in a single private vault on your device, sealed with your password.
 
-| Command | What it does |
-| --- | --- |
-| `/chat <task>` | conversation backed by full memory |
-| `/code <task>` | hands-on: read, change, verify — ends with a diff report |
-| `/research <topic>` | memory + web research — ends in a written report with sources |
-| `/research <name>.yml <topic>` | same, but searching only the sites of a research profile (YAML site lists created in `/setup`, stored in the wiki's `research/` folder) |
-| `/upload` | folder-picker TUI (starts at Downloads) — copies picked files into the wiki's `info/` folder and chunks them into RAG memory |
-| `/store` | the MCP store: fuzzy-search TUI over every MCP server on Docker (A-Z) — pull, register, update, disable, uninstall |
-| `/ingest <folder>` | chunk a folder's docs into RAG memory (grants read too) |
-| `/grants read <path>` / `/grants write <path>` | grant folder access |
-| `/leash leashed\|unleashed` | take the leash off (or put it back on) |
-| `/status` | brain, leash, grants, RAG size, wiki size |
-| `/wiki list` / `/wiki read <name>` | browse Wiki Memory |
-| `/setup` | customize: brain, memory folders, leash + grants, research profiles |
-| `/password` | change the vault password |
-| `/help` | all commands |
-| `exit` (or Ctrl-D) | seal the vault and quit |
-| `cd [path]` | change directory (`~`, `..`, `-`; the prompt path follows) |
+**How you use it.** Your terminal keeps working exactly as a terminal — everything you type runs as typed. Slash commands wake the AI: `/chat` to talk with full memory behind it, `/code` for hands-on work that ends in a report of exactly what changed, `/research` for a written report with sources, `/upload` or `/ingest` to teach it your documents. You never watch it think: the screen shows one line while it works, then it reports once, cleanly.
 
-**You never watch it think.** While a run is live, the screen shows one line — `Processing Request............` — and nothing else: reasoning, tool calls, retries and dead ends stream only into the forensic chat log. When the run finishes, the final TUI report renders: what was asked, what happened, which tools ran, what changed — then the shell prompt returns.
+**How it remembers.** Every skill, document, and conversation becomes part of the agent's permanent memory: knowledge goes into its own private wiki, and all of it is searchable instantly — the agent looks things up in a filing cabinet instead of rereading everything — so answers stay quick, and it gets more useful about your systems over time instead of forgetting between runs.
 
-## What's Built (v0.1.0)
-
-- **One Rust binary** — the agent, memory engine, tool suite, TUI walkthrough, crypto vault, and baseline docs all compile into a single static executable. No interpreter, no runtime, no framework.
-- **The slash shell** — passthrough shell + `/chat` / `/code` / `/research` agent modes with per-mode system framing.
-- **ADMINOTAUR, the sysadmin agent** — the one personality: a technical worker that makes the whole AI system operate. It administers everything the system is made of — model backends, the vault, RAG memory, the wiki, grants, the Leash, the hardened MCP container pool — and builds subagents when a task needs them. Systems-administrator discipline throughout: measure before acting, verify before concluding, report exactly what was done.
-- **Model layer: OpenRouter or Ollama** — deliberately only two backends, both speaking OpenAI-style HTTP, so one thin client covers the entire model layer. OpenRouter is the default (one key, every hosted model — perfect for a phone: it only makes HTTPS calls), with curated picks offered at setup — **GLM Flash Latest** (`~z-ai/glm-flash-latest`, the cheap+fast default), heavyweight **GLM Latest** (`~z-ai/glm-latest`), **Kimi 3** (`moonshotai/kimi-k3`), and **DeepSeek 4.1 Flash** (`deepseek/deepseek-v4.1-flash`). OpenRouter serves its "latest" aliases only with the tilde prefix, and they always track the newest model in each family; vaults saved with the older tilde-free spelling are migrated on load. Ollama runs your local models.
-- **Encrypted vault** — everything lives at `~/.decyphertek.ai/vault.dct`: AES-256-GCM over a gzip'd tar of the whole data directory, key derived with Argon2id from your password (salted, fresh nonce per seal). Launch asks for the password, decrypts to a private staging dir, and seals atomically on exit — AES-GCM's authentication means a wrong password simply fails. Crash mid-session? The plaintext staging survives, and the next launch re-verifies and re-seals it.
-- **RAG vector store** — one SQLite file, chunked knowledge, deterministic 256-dim feature-hashing embeddings, and **SQLite-Vector** (sqlite.ai) compiled into the binary for SIMD vector search (INT8 quantized scans); fully differential indexing — re-indexing unchanged documents is free, edits replace their chunks, deletions prune them. Zero external services, zero model downloads, fully offline (a phone-sized brain has to run on the phone).
-- **Wiki Memory** — markdown knowledge base with a baseline shipped *inside the binary* (operative handbook, vault internals, commands, adminotaur, RAG design), plus everything the agent writes back — every page auto-chunked into vector memory the moment it is written, and `memory-index`, an auto-generated directory the agent consults first.
-- **MCP tool servers via `/store`** — a fuzzy-search TUI over *every MCP server found in Docker*, A-Z: an in-binary seed catalog (fetch, git, github, slack, time, …), a live Docker Hub query, and images already pulled on the machine. Pick one, pull, register — its tools merge into the agent's tool list as `mcp_<server>_<tool>`. Servers launch under a **security template that keeps them internal-only**: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, memory/pid caps, no published ports — the only channel a server gets is the stdio pipe the agent holds, so it can answer the agent and nothing else. Enable/disable/uninstall from the same TUI; the registry seals into the vault.
-- **Zero-step setup** — the installer finishes by running `decyphertek.ai` itself; the launcher detects whether the agent has been configured and, on a fresh install, a short wizard runs immediately: brain (OpenRouter key + model, or Ollama), the Leash — then plain defaults into `~/.decyphertek.ai`, straight into the slash shell. No folder quizzes, no grant menus, no research prompts; the wizard ends by pointing at `/setup`. `/setup` (or `decyphertek.ai setup`) opens the full customization wizard — brain, memory folders, leash + per-ability grants, research profiles — whenever you want to change anything.
-- **The leash (permissions)** — the agent reads/writes folders and tools only as granted: read folders, write folders, per-tool switches (web_search, read_files, write_files, run_command, mcp_servers). Leashed, it can always touch its own data dir and nothing else; tool calls beyond grants come back `DENIED` — logged, respected, reported. Unleashed, folder scopes drop **and every ability turns on** — the runtime offers and runs every tool regardless of the switches, which resume only when re-leashed; the agent's own system prompt is told exactly that, so it uses what it has instead of assuming it has nothing. Leashed + run_command enabled asks you to confirm each command interactively. In `/setup` the two modes ask differently: leashed shows a can/can't list and the space-to-toggle ability menu; unleashed lists everything it can do behind one "Do you really accept?" — accept turns all abilities on. A fresh install asks no grant menus at all: leashed just lands on the default grants; unleashed still shows the full list and takes that one accept.
-- **Forensic chat logs** — every run leaves a JSONL case file: prompts, model replies, every tool call with arguments, results, final report. Case files are chunked into RAG memory (so past dialogues are recallable), and rotate into monthly `tar.gz` archives after 30 days.
-- **Keyless web research** — real DuckDuckGo result links + snippets (plus a `web_fetch` tool to read a hit in full), layered with keyless native sources (Wikipedia, Hacker News, Internet Archive) so a blocked endpoint never means an empty report; findings land in the final report and get chunked into memory.
-- **Research profiles** — YAML site lists (`research/<name>.yml`, created in `/setup`, sealed in the vault): `/research <name>.yml <topic>` searches *only those sites* — site-scoped queries plus the sites' native APIs, with `web_fetch` restricted the same way. Two baselines ship inside the binary: the `rag-chat.yml` example, and the hardcoded `sources.yml` — public archival research databases (Internet Archive, NARA, Federal Register, Data.gov, Congress.gov, GovInfo, State Dept FRUS, the Pentagon UAP mirror, CIA Reading Room, UK National Archives, arXiv, Crossref, Semantic Scholar, OpenAlex, PubMed, NASA ADS, Europe PMC, Library of Congress, Project Gutenberg, Columbia History Lab, National Security Archive, UCSF Industry Documents, ProPublica Nonprofit Explorer, FEC, Black Vault, OVNI Archive) — so `/research sources.yml <topic>` works out of the box, with Internet Archive answering through its free keyless metadata query API (`archive.org/advancedsearch.php`).
-- **`/upload`** — a folder-picker TUI (opens at Downloads, walks the tree, `(go up)`/`(done)`) that copies picked files into the wiki's `info/` folder and chunks them into RAG memory: your docs travel with the agent, sealed inside the vault.
-- **Learning loop** — recall memory before a run; instruct the model docs-first (read before using an unfamiliar tool); distill learnings via the `remember` and `write_wiki` tools; every report itself is chunked as `report`-kind knowledge, so next run starts smarter.
-
-## Ollama — really slim local models
-
-Local Ollama gives a phone-sized setup — the Podroid VM, a small ARM box — a no-cloud brain. Install it yourself where it runs (`apk add ollama` on the Alpine VM, the distro's package or the official install script elsewhere), start the daemon, and the agent reaches it at `http://127.0.0.1:11434`. The models actually sized for a phone:
-
-| Model | Size | Notes |
-| --- | --- | --- |
-| `qwen2.5:0.5b-instruct` | ~500 MB | default — surprisingly capable |
-| `llama3.2:1b` | ~1.3 GB | best quality if the phone has RAM to spare |
-| `smollm2:360m` | ~300 MB | very tight devices |
-| `nomic-embed-text` | ~274 MB | roadmap: neural embeddings for RAG |
-
-Start the daemon in a second terminal (`ollama serve &`), and the agent reaches it at `http://127.0.0.1:11434`. Realistic expectations: these handle short tasks and chat, not deep reasoning; OpenRouter stays the default brain for heavy thinking.
-
-## The Secure Vault
-
-```
-~/.decyphertek.ai/
-├── vault.dct        ← everything, encrypted (AES-256-GCM + Argon2id)
-└── staging/         ← exists only while the agent runs (0700, wiped on seal)
-    ├── config.json          (backend, API key, leash, grants)
-    ├── memory/
-    │   ├── vectors.db       (RAG SQLite vector store)
-    │   └── wiki/*.md        (Wiki Memory)
-    ├── chatlogs/*.jsonl     (forensic case files)
-    └── archives/*.tar.gz    (rotated monthly)
-```
-
-- The key is never stored — derived on demand: `Argon2id(password, salt, m=32 MiB, t=2)`.
-- Seal-on-exit is atomic (write `tmp`, rename); the staging copy is removed afterwards.
-- Crash recovery: if the process dies mid-session, `staging/` survives and the next launch checks the password against the sealed vault, then re-seals. Worst case, nothing is lost.
-- **There is no backdoor and no recovery.** Lose the password, lose the agent — by design.
-
-## The Leash
-
-| | Leashed (default) | Unleashed |
-| --- | --- | --- |
-| Read folders | only granted folders + own data dir | anywhere your user can |
-| Write | only own data dir (+ grants) | anywhere your user can |
-| `run_command` | asks y/N before each command (if enabled) | runs without asking |
-| Tool switches | apply after setup choices | every ability is on — the switches resume when re-leashed |
-
-Grant and revoke live, in the shell: `/grants read ~/projects`, `/grants write ~/notes`, `/leash unleashed`, or during setup. The agent's own data dir is always readable/writable to itself; everything else must be given.
-
-In `/setup` (the customization wizard) the two modes ask differently:
-
-- **Leashed (default)** — first one panel spells out what it **can** (chat and remember into its encrypted memory, always; each ability you enable) and **cannot** do (read/write outside granted folders, commands without your y/N, anything left off). Then every ability is offered in a single **space-to-toggle** menu: `web_search`, `read_files`, `write_files`, `run_command` (each command still asks y/N when it runs), `mcp_servers`.
-- **Unleashed** — no toggle menu: one panel lists everything the agent could then do (read/write anywhere your user can, run commands without asking, web, MCP containers, subagents carrying the same access), followed by one explicit question: **“Do you really accept?”**. Yes → all abilities on, folder scopes off. No → it stays leashed and the space-to-toggle menu appears instead.
-
-## Releases
-
-The **Prod-Build** workflow is manual dispatch: *Actions → Prod-Build → Run workflow* — optionally set a tag (default is `v<version from Cargo.toml>`) and notes. It cross-compiles the single binary for every target, packages + checksums them, and publishes a GitHub Release. The install script pulls `releases/latest`, so every release instantly becomes what a phone or PC installs, and the installer doubles as the updater.
-
-| Asset (from `releases/latest`) | Runs on |
-| --- | --- |
-| `decyphertek-aarch64-unknown-linux-musl.tar.gz` | **Podroid's Alpine VM (Android)**, ARM Linux boxes and servers |
-| `decyphertek-x86_64-unknown-linux-musl.tar.gz` | PCs, servers |
-
-Static musl binaries run on any Linux regardless of the host's libc — the same file that runs on a stock Debian server runs unchanged inside Podroid's VM.
-
-## Architecture
-
-```mermaid
-flowchart TB
-    subgraph Core["Agent Core - single Rust executable"]
-        Orchestrator["LLM Orchestrator<br/>(plain loop, no framework)"]
-        Agent["ADMINOTAUR<br/>sysadmin agent - operates the whole system, builds subagents"]
-        Orchestrator --- Agent
-    end
-
-    subgraph Vault["~/.decyphertek.ai/ - encrypted at rest"]
-        Seal[("vault.dct<br/>AES-256-GCM + Argon2id")]
-        Staging["staging/ (session only)"]
-        Vector[("vectors.db — RAG<br/>SQLite + hashing embeddings")]
-        Wiki[("memory/wiki/*.md<br/>Wiki Memory")]
-        Config[("config.json<br/>backend, leash, grants")]
-        Logs[("chatlogs/*.jsonl<br/>forensic case files")]
-        Seal <-->|"password"| Staging
-        Staging --- Vector
-        Staging --- Wiki
-        Staging --- Config
-        Staging --- Logs
-    end
-
-    subgraph Models["Model backends - one OpenAI-style client"]
-        OpenRouter["OpenRouter<br/>default · one key, every hosted model"]
-        Ollama["Ollama<br/>optional · local · slim models for small VMs"]
-    end
-
-    subgraph Tools["Tool layer - built-in, leash-enforced"]
-        Files["read/write/list files<br/>(folder grants)"]
-        Web["web_search<br/>DuckDuckGo + Wikipedia"]
-        Shell["run_command<br/>(gated + confirmed when leashed)"]
-        Memory["memory_search · remember"]
-        WikiT["read_wiki · write_wiki"]
-        Mcps["/store MCP servers in Docker<br/>--network=none · stdio-only"]
-    end
-
-    subgraph Interface["slash shell"]
-        Pass["passthrough<br/>commands run as typed"]
-        AtCmds["/chat /code /research"]
-        Store["/store — MCP store<br/>pull Docker servers A-Z"]
-        Tui["TUI reports"]
-        Wizard["first-run wizard<br/>Adminotaur: brain → leash → password<br/>+ defaults; /setup customizes"]
-    end
-
-    You([You]) -->|/ command| AtCmds
-    You -->|anything else| Pass
-    You -->|browse, pull, register| Store
-    You -->|setup / launch| Wizard
-    Wizard -->|password| Seal
-    Store -->|registered servers| Mcps
-    Mcps -->|tools as mcp_server_tool| Orchestrator
-    AtCmds -->|task + recalled memory| Orchestrator
-    Orchestrator -->|one final report| Tui
-    Orchestrator -->|thoughts, tool calls| Logs
-    Logs -->|chunked into memory| Vector
-    Logs -->|30-day rotation| Vault
-    You -->|docs in your folders| Vector
-    Vector -->|retrieved context| Orchestrator
-    Orchestrator <-->|prompts / completions| OpenRouter
-    Orchestrator <-->|prompts / completions| Ollama
-    Orchestrator <-->|gated calls| Tools
-    Tools -->|DENIED beyond grants| Orchestrator
-```
-
-### How a Run Works
-
-1. **Recall** — the task text searches the RAG store; top chunks become context.
-2. **Frame** — the Adminotaur sysadmin prompt + mode rules + leash summary + recalled memory become the system prompt.
-3. **Loop** (max 12 iterations) — the model replies with tool calls; the orchestrator executes each through the leash, appending results; when the model produces a final answer, the loop ends. Registered /store MCP servers spawn as hardened containers at run start (network=none, stdio-only) and die with the run.
-4. **Learn** — the report and full case file are chunked into memory (`report` / `chatlog` kinds); the agent may have stored distillations via `remember` during the run.
-5. **Report** — one TUI panel + a stats line; the shell returns.
-
-### The Stack
-
-Rust end to end, deliberately small: `ureq` (HTTPS with rustls), `rusqlite` (bundled SQLite), `aes-gcm` + `argon2` + `getrandom` (the vault), `tar` + `flate2` (seal format + log rotation), `dialoguer` + `console` (TUI). No tokio, no async, no LangChain, no ML stack — the loop is plain owned code.
-
-- **No Python, no LangChain.** The docs-first learning loop is deliberately small — prompt the model, run the tool, chunk the result, update the wiki. A framework would outweigh the app; in Rust it is just code in one binary.
-- **Crates, not ecosystems.** One HTTP client for the model backends and web search, one SQLite binding for the vector store, one markdown writer for Wiki Memory — small crates, nothing dragging an ML stack behind them.
-- **Cross-compiled, not ported.** Every target comes from the identical codebase: aarch64 musl for the Podroid VM and ARM boxes, x86_64 musl for PCs. No maintained divergence, no separate fork for any platform.
-
-Everything cross-compiles static; CI is `cargo test` on Linux with clippy + fmt gating.
-
-## Development
-
-```bash
-cargo build --release        # build the binary
-cargo test                   # 30 unit tests (vault, embeddings, leash, wiki, chunking, MCP store)
-cargo clippy -- -D warnings  # zero-warning policy
-```
-
-End-to-end drivers live in `tests/`:
-
-> CI/CD — the branch model (branches are the contributors: `dev-adminotaur`, `dev-usaginotsuki`), the release channels, and the SonarQube security loop are documented in [`.github/workflows/instructions.md`](.github/workflows/instructions.md).
-
-- `tests/e2e_wizard.py` — pty driver: quick first-launch wizard (defaults, `/setup` hint, no extra questions), seal, unlock, wrong-password rejection, `@status`/`@wiki`/`@leash`, seal-on-exit.
-- `tests/e2e_agent.py` — full agent loop with a fake Ollama (`tests/fake_ollama.py`): tool-call protocol, `remember` → RAG write, cross-run recall, leash DENIED mid-run, silent running, forensic logging.
-
-Both run against the release binary with a scratch `$HOME`.
-
-## Roadmap
-
-Phase 1 shipped in this build:
-
-- [x] SQLite RAG vector store + hardcoded Wiki Memory baseline
-- [x] Docs-first learning loop in plain Rust — no LangChain
-- [x] slash-shell passthrough — `/chat`, `/code`, `/research`
-- [x] TUI final reports — the agent's only on-screen output
-- [x] Forensic chat logs — structured case files, chunked into memory, monthly rotation
-- [x] Keyless web research (DuckDuckGo + Wikipedia)
-- [x] Model layer — OpenRouter by default, optional Ollama, one client
-- [x] The leash — folder grants, tool gates, leashed/unleashed
-- [x] Encrypted vault — password on launch, sealed on exit
-- [x] TUI walkthrough wizard + the ADMINOTAUR sysadmin agent
-- [x] Cross-compiled release pipeline (aarch64 + x86_64 Linux, Podroid VM first-class) + manual release workflow
-- [x] One-command installer pulling `releases/latest` (doubles as updater)
-
-Next phases:
-
-- [x] MCP tool servers — `/store` TUI: search Docker (A-Z, hub live search + seed catalog), pull, register; hardened containers (`--network=none`, `--cap-drop=ALL`) that talk only to the agent over stdio; registry sealed in the vault, gated by the leash's mcp_servers switch
-- [ ] Neural embeddings via Ollama `nomic-embed-text` (swap the hashing embedder, same schema)
-- [ ] MCP sync servers — GitHub MCP for Wiki Memory-as-git-repo, rclone MCP for Proton Drive backup of the whole data dir
-- [ ] Custom subagents via user-written `AGENT.md` on top of the Adminotaur core
-- [ ] Self-replication: binary from Releases + memory from sync = same agent on any device
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+**How it stays safe.** It is leashed by default: it only reads, writes, and runs what you grant, asks before running commands, and keeps a full activity log of every run. Nothing about you or your files leaves your machine unless you connect a hosted brain — and even then, only what your task needs. One password encrypts the entire vault — memory, settings, keys — with AES-256.
