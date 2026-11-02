@@ -161,6 +161,10 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         }
 
         let vectors = Vectors::open(&paths.vector_db)?;
+        // The wiki the wizard ships is vector memory from the first run:
+        // differential sync, so re-runs of setup change nothing.
+        let _ = crate::wiki::refresh_index_page(paths, &vectors);
+        let _ = crate::wiki::sync_index(paths, &vectors);
         for folder in &folders {
             let (files, added) = vectors
                 .ingest_folder(&PathBuf::from(folder))

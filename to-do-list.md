@@ -48,11 +48,17 @@ the cosine search the RAG chat already runs.
    - optional local ONNX (`fastembed`/`candle`) — only if it actually
      cross-builds for our musl targets (open question below)
 3. Vector storage pick — measure, then document the choice:
-   - embeddings as BLOBs + cosine scan (today; fine to tens of
-     thousands of chunks)
-   - ANN index in Rust (`hnsw_rs`) persisted next to the vectors
-   - `sqlite-vec` loadable extension — verify extension loading works
-     inside bundled rusqlite in a static musl binary before betting
+    - embeddings as BLOBs + cosine scan (the original baseline)
+    - ~~`sqlite-vec` loadable extension — verify extension loading works
+      inside bundled rusqlite in a static musl binary before betting~~
+      **Resolved** (Nov 2026): search now runs on SQLite-Vector
+      (sqlite.ai/sqlite-vector), compiled straight into the binary under
+      `SQLITE_CORE` — `vendor/sqlite-vector/` + `build.rs` — so there is
+      no loadable `.so` to fit into musl at all. `vector_quantize_scan`
+      (INT8, SIMD) answers queries; a Rust cosine scan stays as the
+      fallback. Differential re-indexing (per-document content hashes,
+      prune on delete) landed with it and covers wiki, `/ingest` and
+      `/upload`.
 
 **Candidate crates** (landscape verified Dec 2025 — re-verify when
 the task is picked up; this is the rust equivalents of the
@@ -93,8 +99,6 @@ Too young to trust yet (re-check first): `sklears`, `rrag`,
 **Open questions**
 - does `fastembed`'s ONNX runtime build for musl at all — or does the
   Ollama embedder cover "local + semantic" well enough?
-- can `sqlite-vec` be loaded from bundled rusqlite in a static binary,
-  or is BLOBs + `hnsw_rs` the pragmatic route?
 - chunking for tables: bundle rows so related rows land in one chunk
   instead of one chunk per row?
 
