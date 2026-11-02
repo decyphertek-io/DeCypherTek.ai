@@ -51,8 +51,17 @@ Removes the program; the encrypted memory vault is kept. Wipe the memory too wit
 curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uninstall.sh | bash -s -- --purge
 ```
 
-## About — how it works
+## About — what it can do
 
-**What it is.** An AI operator that runs on your own machine — a PC, a server, or the Podroid Linux VM on Android. One program, no required cloud: it calls a brain you choose (hosted OpenRouter, or a local Ollama for a fully offline setup), and everything it knows — settings, documents, skills, every past run — stays inside a single encrypted vault on your device, sealed with your password.
+**The core.** An AI operator that runs on your own machine — a PC, a server, or the Podroid Linux VM on Android — as one self-contained program. It calls a brain you choose (hosted OpenRouter, or a local Ollama for a fully offline setup), and everything it knows stays inside one encrypted vault on your device, sealed with your password.
 
-**How it behaves.** It only does what you granted while leashed: folder access you approve, shell commands that ask y/N, web and tools you enable. Every past conversation, uploaded document, and skill it distills persists across runs, so it stays current on your systems instead of forgetting. Each run works like an operator's case: it acts, logs everything, reports the result once.
+**Its abilities, high level:**
+
+- **RAG chat** — conversations are backed by a private vector database: everything the agent learns (documents, past runs, distilled skills) is chunked and indexed so the relevant knowledge is found instantly instead of re-reading everything. Answers stay fast — and it never forgets between runs.
+- **LLM wiki** — durable knowledge goes into a markdown knowledge base the agent writes and maintains itself: a `memory-index` directory page maps where everything lives, and new pages are auto-indexed into its memory the moment they are written.
+- **Web research** — searches the web and delivers a written report with sources; research can be locked to specific site lists you define.
+- **Hands-on system work** — reads and writes files, runs shell commands, and verifies its own work, reporting exactly what changed.
+- **MCP support** — a whole catalog of extra tool servers (fetch, git, GitHub, Slack, …) can be pulled from its `/store` and run network-isolated; their tools merge into the agent's toolbox.
+- **Subagents** — for complex tasks it writes its own subagents: focused worker copies with their own instructions, working the task in parallel under the same leash.
+
+**How it behaves.** While leashed it only does what you granted — folder access you approve, shell commands that ask y/N, tools you enable. Every run is logged in full and reports once: what was asked, what was done, what changed.
