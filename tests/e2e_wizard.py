@@ -115,11 +115,17 @@ out = text()
 check("adminotaur" in out and "openrouter" in out, "@status shows agent + backend")
 check("leashed" in out, "@status shows leash")
 
-send("@wiki list\r")
+wiki_dir = os.path.join(STAGING, "memory", "wiki")
+check(os.path.isfile(os.path.join(wiki_dir, "operative-handbook.md")), "baseline wiki present in vault")
+check(os.path.isfile(os.path.join(wiki_dir, "research", "rag-chat.yml")), "baseline research profiles present in vault")
+check(os.path.isfile(os.path.join(wiki_dir, "memory-index.md")), "memory directory generated")
+
+buf = b""
+send("/help\r")
 drain(1.5)
 out = text()
-check("operative-handbook" in out, "baseline wiki present in vault")
-check("research/rag-chat.yml" in out, "baseline research profiles present in vault")
+check("/rag <folder> *" in out, "/help documents /rag")
+check("upload" not in out and "ingest" not in out, "old doc commands removed from /help")
 
 send("@leash unleashed\r")
 drain(1.5)

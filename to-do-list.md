@@ -31,15 +31,18 @@ the cosine search the RAG chat already runs.
 
 **Work items**
 1. One `Ingestor` trait, adapters behind it:
-   - text/code files (today's allow-list, unchanged)
-   - structured: CSV/TSV/JSON/Parquet — rows rendered as
-     `column: value` text; polars reads Parquet through Arrow without
-     us owning a parser
-   - extracted: PDF (`pdf-extract`/`lopdf`), DOCX/XLSX/PPTX and EPUB
-     (zip + embedded xml/xhtml text)
-   - database files: existing SQLite/DuckDB databases opened read-only,
-     rows rendered as text — each source type capped like the 2 MB
-     text guard, caps documented
+    - text/code files (today's allow-list, unchanged)
+    - structured: CSV/TSV/JSON/Parquet — rows rendered as
+      `column: value` text; polars reads Parquet through Arrow without
+      us owning a parser
+    - extracted: **PDF, DOCX (zip + embedded xml), legacy DOC (cfb
+      compound file, best-effort text range), EPUB — shipped Nov 2026
+      in `src/extract.rs`, funneled through `/rag <folder> *
+      / <file>` (folder and single-file modes, differential)**;
+      XLSX/PPTX would follow the same zip+xml path
+    - database files: existing SQLite/DuckDB databases opened read-only,
+      rows rendered as text — each source type capped like the caps
+      in `extract.rs`, caps documented
 2. Embedder becomes a config choice — offline default stays:
    - `feature-hash` — today's embedder (zero download, deterministic)
    - `ollama` — `nomic-embed-text` through the configured local

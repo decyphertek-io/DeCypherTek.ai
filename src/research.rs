@@ -93,7 +93,7 @@ pub fn load(p: &Paths, raw_name: &str) -> Result<ResearchProfile> {
     let file = normalize_name(raw_name)?;
     let path = research_dir(p).join(&file);
     let body = std::fs::read_to_string(&path).map_err(|_| {
-        anyhow!("research profile '{raw_name}' not found — /wiki list shows what exists, /setup creates new ones")
+        anyhow!("research profile '{raw_name}' not found — /setup lists and creates profiles")
     })?;
     let profile = parse(&body).with_context(|| format!("parsing research profile {file}"))?;
     let name = if profile.0.is_empty() {

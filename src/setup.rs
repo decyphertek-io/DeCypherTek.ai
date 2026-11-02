@@ -7,7 +7,7 @@
 //! setting defaults, and every default path lives inside the ONE
 //! folder ~/.decyphertek.ai — the encrypted vault, the llm wiki, its
 //! research profiles (two ship ready), the RAG memory store. No
-//! memory-folder prompts (teach it with /ingest anytime), no grant
+//! memory-folder prompts (teach it with /rag anytime), no grant
 //! menu (/grants), no research quiz (/setup does all of that later).
 //! The wizard ends by saying exactly that: to customize, type /setup.
 //!
@@ -111,8 +111,8 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         choose_ollama(&mut cfg, &theme)?;
     }
 
-    // 2. Memory folders (FULL only) = RAG ingest (+ optional read
-    //    grant). The QUICK flavor teaches docs with /ingest instead —
+    // 2. Memory folders (FULL only) = RAG indexing targets (+ optional read
+    //    grant). The QUICK flavor points at /rag instead —
     //    no question here.
     let (folders, grant_read) = if full {
         memory_folders(&mut cfg, &theme)?
@@ -166,18 +166,21 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         let _ = crate::wiki::refresh_index_page(paths, &vectors);
         let _ = crate::wiki::sync_index(paths, &vectors);
         for folder in &folders {
-            let (files, added) = vectors
+            let report = vectors
                 .ingest_folder(&PathBuf::from(folder))
-                .with_context(|| format!("ingesting {folder}"))?;
+                .with_context(|| format!("indexing {folder}"))?;
             tui::info(
                 "RAG",
-                &format!("{folder}: {files} files scanned, {added} chunks added."),
+                &format!(
+                    "{folder}: {} file(s) scanned, {} indexed, {} chunk(s) added.",
+                    report.files, report.indexed, report.added
+                ),
             );
         }
         if folders.is_empty() {
             tui::info(
                 "RAG",
-                "No folders given — use /ingest <folder> anytime to teach it new docs.",
+                "No folders given — use /rag <folder> * anytime to index new docs.",
             );
         }
         if grant_read {
@@ -192,7 +195,7 @@ pub fn wizard(paths: &Paths, existing: Option<&Config>) -> Result<Config> {
         tui::info(
             "MEMORY",
             "Defaults set — its llm wiki, research profiles and RAG memory all live \
-             encrypted in ~/.decyphertek.ai. Teach it docs anytime: /ingest <folder>.",
+             encrypted in ~/.decyphertek.ai. Index docs anytime: /rag <folder> *.",
         );
         quick_summary(paths, &cfg);
     }
@@ -250,7 +253,7 @@ fn quick_leash(cfg: &mut Config, theme: &ColorfulTheme) -> Result<()> {
             "ON  web search · read + write inside its own ~/.decyphertek.ai · MCP tool \
              servers from /store\n\
              OFF write elsewhere · run shell commands — until you grant them\n\
-             teach it docs: /ingest <folder> (grants READ + memory) · grant more: \
+             teach it docs: /rag <folder> * (indexes them into memory + grants READ) · grant more: \
              /grants read|write <dir> · take the leash off: /leash unleashed",
         );
     }
@@ -271,7 +274,7 @@ fn quick_summary(paths: &Paths, cfg: &Config) {
                staging/memory/wiki/          the llm wiki — baseline pages installed\n\
                staging/memory/wiki/research/ research profiles — rag-chat.yml + sources.yml ready\n\
                staging/memory/vectors.db     the RAG memory store\n\
-             teach it docs anytime: /ingest <folder> · /upload · /grants read|write <dir>\n\
+             teach it docs anytime: /rag <folder> * · /grants read|write <dir>\n\
              to customize, type /setup — brain, memory folders, grants, research profiles",
             cfg.backend_summary(),
             cfg.leash,

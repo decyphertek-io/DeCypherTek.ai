@@ -37,7 +37,8 @@ pub const BASELINE_FILES: &[(&str, &str)] = &[
 
 /// The wiki's fixed subfolders. `research/` holds the YAML site lists
 /// `@research <name>.yml` runs against (see src/research.rs); `info/`
-/// holds the docs you upload with @upload. Both seal into the vault.
+/// holds uploaded docs from earlier installs (the @upload command is
+/// gone; /rag indexes documents in place). Both seal into the vault.
 pub const FOLDERS: &[&str] = &["research", "info"];
 
 /// Baseline research profiles shipped inside the binary: the example
@@ -111,7 +112,7 @@ pub fn list(p: &Paths) -> Result<Vec<String>> {
     }
     out.sort();
     // Subfolder entries show as "folder/file" (research profiles, info
-    // uploads) — sorted after the root pages.
+    // docs from earlier installs) — sorted after the root pages.
     let mut sub = Vec::new();
     for folder in FOLDERS {
         if let Ok(entries) = std::fs::read_dir(p.wiki_dir.join(folder)) {
@@ -151,12 +152,6 @@ fn split_folder_entry(raw: &str) -> Option<(String, String)> {
     } else {
         None
     }
-}
-
-/// Sanitized destination path for an uploaded doc inside info/.
-pub fn info_file_path(p: &Paths, raw_name: &str) -> Result<std::path::PathBuf> {
-    let name = sanitize_folder_file(raw_name)?;
-    Ok(p.wiki_dir.join("info").join(name))
 }
 
 pub fn read(p: &Paths, raw_name: &str) -> Result<String> {

@@ -35,26 +35,30 @@ the keyless native APIs of archive.org, arxiv.org, news.ycombinator.com
 and wikipedia.org when they are in the profile). Create or change
 profiles in `@setup` — a new one is saved into `research/`
 automatically. Two baselines ship inside the binary: the `rag-chat.yml`
-example, viewable via `@wiki read research/rag-chat.yml`, and the
-hardcoded `sources.yml` — public archival research databases (Internet
-Archive, NARA, Federal Register, Data.gov, Congress.gov, GovInfo,
-FRUS, the Pentagon UAP mirror, the CIA FOIA Reading Room, the UK
-National Archives, arXiv, Crossref, Semantic Scholar, OpenAlex,
-PubMed, NASA ADS, Europe PMC, the Library of Congress, Project
-Gutenberg, Columbia History Lab, the National Security Archive, the
-UCSF Industry Documents Library, ProPublica Nonprofit Explorer, the
-FEC, the Black Vault and the OVNI Archive) — so
-`@research sources.yml <topic>` digs into the world's archives out of
-the box; Internet Archive answers natively through its keyless
+example, and the hardcoded `sources.yml` — public archival research
+databases (Internet Archive, NARA, Federal Register, Data.gov,
+Congress.gov, GovInfo, FRUS, the Pentagon UAP mirror, the CIA FOIA
+Reading Room, the UK National Archives, arXiv, Crossref, Semantic
+Scholar, OpenAlex, PubMed, NASA ADS, Europe PMC, the Library of
+Congress, Project Gutenberg, Columbia History Lab, the National
+Security Archive, the UCSF Industry Documents Library, ProPublica
+Nonprofit Explorer, the FEC, the Black Vault and the OVNI Archive) —
+so `@research sources.yml <topic>` digs into the world's archives out
+of the box; Internet Archive answers natively through its keyless
 metadata query API (archive.org/advancedsearch.php).
 
-## @upload — your docs into the vault (info/)
+## @rag — your documents into RAG memory
 
-- `@upload` — opens a folder picker (starting at Downloads; folders
-  navigate, `(go up)` moves up, `(done)` finishes). Picked files are
-  copied into the wiki's `info/` folder and chunked into RAG memory, so
-  they seal into the vault and the agent can read them. Text files are
-  chunked; binaries are stored as-is.
+- `@rag <folder> *` — recursively index every supported document in
+  the folder: text, notes, code, **PDF, Word (docx and legacy doc),
+  EPUB**. It is differential: changed documents are re-chunked,
+  deleted ones pruned, unchanged ones cost nothing — re-run it as
+  often as you like. READ on the folder is granted so the agent can
+  also open the originals.
+- `@rag <folder> <name.ext>` — index one document by name.
+- Then just ask: `@chat <question>` — answers come straight from
+  vector memory (one memory_search reaches the right chunk), never by
+  the agent re-reading whole folders or wasting tokens.
 
 ## @store — MCP tool servers
 
@@ -72,11 +76,8 @@ metadata query API (archive.org/advancedsearch.php).
 
 ## Management
 
-- `@ingest <folder>` — chunk a folder's docs into RAG memory, grants read.
 - `@grants read <path>` / `@grants write <path>` — grant folder access.
 - `@leash leashed|unleashed` — enforce or drop folder scopes; unleashed turns every ability on.
-- `@wiki list` / `@wiki read <name>` — browse memory pages (also
-  `research/<profile>.yml` and `info/<uploaded-doc>` entries).
 - `@status` — brain, leash, grants, MCP servers, RAG size, wiki size.
 - `@setup` — re-run the walkthrough (brain, folders, tools — including
   the MCP gate, registered servers, and creating research profiles).

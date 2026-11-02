@@ -7,6 +7,7 @@
 mod agent;
 mod chatlog;
 mod config;
+mod extract;
 mod models;
 mod paths;
 mod research;

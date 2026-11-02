@@ -35,7 +35,7 @@ pub struct ToolCtx<'a> {
 
 pub fn specs(cfg: &Config) -> Vec<ToolSpec> {
     let mut out = vec![
-        tool_spec("memory_search", "Search the agent's vector memory (wiki pages, ingested docs, uploads, learnings, past runs) for relevant knowledge — deep, fast recall.", json_obj(&[("query", "string")])),
+        tool_spec("memory_search", "Search the agent's vector memory (wiki pages, documents the user indexed with /rag, learnings, past runs) for relevant knowledge — deep, fast recall.", json_obj(&[("query", "string")])),
         tool_spec("remember", "Store a lasting learning into memory. Use whenever something new and useful was learned — keep it under 1200 chars, one focused fact/skill per call.", json_obj(&[("knowledge", "string")])),
         tool_spec("list_wiki", "List pages of the agent's memory wiki (markdown).", json_obj(&[])),
         tool_spec("read_wiki", "Read one page of the agent's memory wiki. `memory-index` is the memory directory — a map of where knowledge lives; read it first when unsure.", json_obj(&[("name", "string")])),
