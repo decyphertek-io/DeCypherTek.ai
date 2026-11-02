@@ -14,7 +14,7 @@ criteria pass and the CI gates are green.
 
 ## Task 1 — RAG: any data source → real vectors in SQLite
 
-**Goal.** `/ingest` and the wizard's memory step must accept any data
+**Goal.** `/rag` and the wizard's memory step must accept any data
 source — not only the text-extension allow-list — extract its text,
 chunk it, embed it with a **semantic** embedder, and store the vectors
 in the existing `vectors.db` inside the sealed vault, searchable by
@@ -60,8 +60,8 @@ the cosine search the RAG chat already runs.
       no loadable `.so` to fit into musl at all. `vector_quantize_scan`
       (INT8, SIMD) answers queries; a Rust cosine scan stays as the
       fallback. Differential re-indexing (per-document content hashes,
-      prune on delete) landed with it and covers wiki, `/ingest` and
-      `/upload`.
+      prune on delete) landed with it and covers wiki and every
+      document indexed through `/rag` (folders and single files).
 
 **Candidate crates** (landscape verified Dec 2025 — re-verify when
 the task is picked up; this is the rust equivalents of the

@@ -70,6 +70,8 @@ check("Create a research profile" not in out, "quick install does NOT quiz for r
 check("rag-chat.yml" in out, "summary lists the ready research profiles")
 check("vectors.db" in out, "summary lists the RAG memory store")
 check("vault.dct" in out, "summary says everything lives in the one folder")
+check("teach it docs anytime: /rag <folder> *" in out, "summary teaches the /rag command")
+check("/ingest" not in out and "/upload" not in out, "summary never mentions removed commands")
 check("/setup" in out, "summary says how to customize: /setup")
 check("Vault password" in out, "new vault password prompt")
 send("e2e-password-123\r")
