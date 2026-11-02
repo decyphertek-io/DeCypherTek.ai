@@ -265,27 +265,69 @@ fn hub_search(http: ureq::Agent) -> Vec<StoreEntry> {
     out
 }
 
-/// Pull with honest success detection: the process's REAL exit status
-/// plus an `image inspect` as a second witness — both runtimes report
-/// the same way. Progress prints live; no output string-matching (the
+/// Download a server image, talked about in plain words: one note
+/// before ("Downloading, may take a minute"), nothing during — the
+/// engine's raw "Writing manifest to image destination" bookkeeping
+/// is hidden, because nobody setting up a server needs it — and on
+/// failure the engine's own explanation, trimmed to the last few
+/// meaningful lines. Success is still judged honestly: the real exit
+/// status plus an `image inspect`, never output word-sniffing (the
 /// old store matched docker's success words and mislabeled podman's
 /// identical success — exit status 0 — a failure, so nothing ever got
 /// registered).
 fn pull_image(cli: &str, image: &str) -> Result<()> {
-    let status = Command::new(cli)
+    tui::info(
+        "MCP",
+        &format!(
+            "Downloading the server image ({image}) — this can take a few \
+             minutes on a slow connection. Nothing will print until it's \
+             done; that's normal."
+        ),
+    );
+    let out = Command::new(cli)
         .args(["pull", image])
-        .status()
+        .output()
         .with_context(|| format!("{cli} pull {image}"))?;
-    let exit_ok = status.success();
+    let exit_ok = out.status.success();
     let inspect_ok = image_present(cli, image);
     if !pull_ok(exit_ok, inspect_ok) {
         return Err(anyhow!(
-            "pull of '{image}' did not land (exit: {status}, inspect found it: \
-             {inspect_ok}) — the image may not exist, the tag may be wrong, \
-             or the registry needs login"
+            "the download didn't finish ({exit_text}). {reason}",
+            exit_text = out.status,
+            reason = error_tail(&out.stderr, 3)
         ));
     }
     Ok(())
+}
+
+/// The last few meaningful lines of an engine complaint — progress
+/// spam ("Copying blob …") stripped — so a failed download explains
+/// itself in the engine's own words, without the download-juggling
+/// noise around them. Display-only: pull success is judged by exit
+/// status and image inspect, never these words.
+fn error_tail(bytes: &[u8], max_lines: usize) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    const PROGRESS: [&str; 5] = [
+        "Copying blob",
+        "Copying config",
+        "Writing manifest",
+        "Pulling",
+        "Waiting",
+    ];
+    let real: Vec<String> = text
+        .split('\n')
+        .map(|l| l.trim_end_matches('\r').trim().to_string())
+        .filter(|l| {
+            !l.is_empty() && !PROGRESS.iter().any(|p| l.starts_with(p))
+        })
+        .collect();
+    if real.is_empty() {
+        return "no explanation was printed — the image name may be wrong, \
+                or the registry needs a login."
+            .to_string();
+    }
+    let start = real.len().saturating_sub(max_lines);
+    real[start..].join(" ")
 }
 
 /// Truth for "did the pull land": both witnesses must agree.
@@ -398,23 +440,25 @@ pub fn mcp(cfg: &mut Config, paths: &Paths, query: &str) -> Result<()> {
     let theme = ColorfulTheme::default();
 
     let enabled = cfg.mcp_servers.iter().filter(|s| s.enabled).count();
+    let total = cfg.mcp_servers.len();
     let runtime_note = if docker_available() {
         String::new()
     } else {
-        "\nNo container runtime on PATH — you can browse and register, but \
-         pulls and launches need docker or podman."
+        "\nDocker isn't installed or running here — you can browse and set \
+         things up, but the download step needs Docker (or Podman) working."
             .to_string()
     };
     tui::info(
         "MCP",
         &format!(
-            "Registered servers: {enabled} enabled / {} total. Search pulls \
-             an image and then walks setup — env keys (hidden, vault-sealed), \
-             mode permissions (/chat, /code, /research), and a verification \
-             launch. Secure template on every launch: --network=none, all \
-             capabilities dropped, stdio-only — servers talk to the agent and \
-             nothing else.{runtime_note}",
-            cfg.mcp_servers.len()
+            "Your AI's tool servers — {enabled} on, {total} registered. \
+             Find a new one by search: /mcp picks from a built-in list, a \
+             live Docker Hub scan, and whatever is already downloaded on \
+             this machine. /mcp downloads it, asks for any sign-in keys it \
+             needs, lets you choose which commands may use it, and tests \
+             it before you leave. Every server runs cut off from the \
+             internet — it can only answer the AI, never reach \
+             out.{runtime_note}"
         ),
     );
 
@@ -429,7 +473,10 @@ pub fn mcp(cfg: &mut Config, paths: &Paths, query: &str) -> Result<()> {
         loop {
             let mut options = vec!["Search for a new MCP server".to_string()];
             if !cfg.mcp_servers.is_empty() {
-                options.push("Setup an MCP server (keys, permissions, on/off)".to_string());
+                options.push(
+                    "Set up an installed server (rename, keys, which commands, on/off)"
+                        .to_string(),
+                );
             }
             options.push("Done".to_string());
             let idx = Select::with_theme(&theme)
@@ -452,9 +499,9 @@ pub fn mcp(cfg: &mut Config, paths: &Paths, query: &str) -> Result<()> {
     tui::info(
         "MCP",
         &format!(
-            "Registered MCP servers: {count} enabled / {} total. They run \
-             hardened (network=none, cap-drop=ALL), stdio-only, on the agent's \
-             terms. Live view: /status — manage any time: /mcp.",
+            "All set: {count} of {} server(s) turned on. The AI can use \
+             them automatically in the commands you allowed. See what's live: \
+             /status — come back any time: /mcp.",
             cfg.mcp_servers.len()
         ),
     );
@@ -581,28 +628,23 @@ fn keys_hint(keys: &[(&'static str, &'static str)]) -> String {
     }
     let lines: Vec<String> = keys.iter().map(|(k, w)| format!("  {k} — {w}")).collect();
     format!(
-        "needs env keys (asked during setup, hidden input, vault-sealed):\n{}\n\n",
+        "it needs these sign-in keys — the setup will ask for them; typing \
+         is hidden and the values stay sealed inside your vault:\n{}\n\n",
         lines.join("\n")
     )
 }
 
-/// Short registered-state suffix for the detail header.
+/// Short registered-state suffix for the detail header, in plain words.
 fn registered_note(cfg: &Config, idx: Option<usize>) -> String {
     match idx {
         None => String::new(),
         Some(i) => {
             let s = &cfg.mcp_servers[i];
             format!(
-                " as '{}' (chat {} · code {} · research {} · keys: {})",
+                " as '{}' — usable by: {} · secrets kept: {}",
                 s.name,
-                yn(s.allow_chat),
-                yn(s.allow_code),
-                yn(s.allow_research),
-                if s.env.is_empty() {
-                    "none".to_string()
-                } else {
-                    s.env.keys().cloned().collect::<Vec<_>>().join(", ")
-                }
+                usable_in(s),
+                secrets_hint(s)
             )
         }
     }
@@ -618,9 +660,8 @@ fn detail_and_act(
     tui::info(
         "MCP SERVER",
         &format!(
-            "{}\n{} · {}{}\n\n{}\n\n{}security template: --network=none, \
-             --cap-drop=ALL, no-new-privileges, stdio-only — the server can \
-             only answer the agent, never reach out.",
+            "{}\n{} · {}{}\n\n{}\n\n{}how it runs: no internet, no special \
+             rights — it can only ever answer the AI, never reach out.",
             entry.image,
             entry.origin.label(),
             if reg_idx.is_some() { "registered" } else { "not registered" },
@@ -632,9 +673,9 @@ fn detail_and_act(
 
     let options: Vec<String> = if reg_idx.is_some() {
         vec![
-            "Set up again (API keys + mode permissions)",
-            "Update image (pull latest)",
-            "Remove from the vault (image kept on disk)",
+            "Set it up again (keys, which commands may use it, test run)",
+            "Update to the newest image",
+            "Remove it (the downloaded copy stays on your machine)",
             "Back",
         ]
         .into_iter()
@@ -642,8 +683,8 @@ fn detail_and_act(
         .collect()
     } else {
         vec![
-            "Add — pull, then set it up (keys + permissions)",
-            "Pull only (register later)",
+            "Add this server — download it, then a few quick questions",
+            "Just download it for now, set it up later",
             "Back",
         ]
         .into_iter()
@@ -651,7 +692,7 @@ fn detail_and_act(
         .collect()
     };
     let sel = Select::with_theme(theme)
-        .with_prompt("Action")
+        .with_prompt("What do you want to do with it?")
         .items(&options)
         .default(0)
         .interact_opt()?;
@@ -662,13 +703,18 @@ fn detail_and_act(
     match (sel, reg_idx) {
         (0, None) => {
             let Ok(cli) = runtime() else {
-                tui::error("No container runtime found — install docker or podman first, then /mcp again.");
+                tui::error("Docker isn't installed or running — install Docker (or Podman) first, then /mcp again.");
                 return Ok(());
             };
             if let Err(e) = pull_image(cli, &entry.image) {
-                tui::error(&format!("pull failed: {e:#}"));
+                tui::error(&format!("{e:#}"));
                 return Ok(());
             }
+            tui::info(
+                "MCP",
+                "Download finished. A few quick questions and the server is \
+                 ready for the AI to use.",
+            );
             let idx = register(cfg, entry);
             guided_setup(cfg, paths, idx, Some(entry), theme)?;
             if let Err(e) = cfg.save(paths) {
@@ -677,38 +723,44 @@ fn detail_and_act(
             tui::info(
                 "MCP",
                 &format!(
-                    "Registered '{}' from {}. Its tools surface as \
-                     mcp_{}_<tool> and go live automatically in your next \
-                     allowed /chat, /code or /research run. Manage keys and \
-                     permissions any time: /mcp → Setup.",
-                    cfg.mcp_servers[idx].name,
-                    entry.image,
-                    sanitize_server_name(&cfg.mcp_servers[idx].name)
+                    "'{}' is installed. The AI sees its skills automatically \
+                     in the commands you allowed — try it in your next /chat, \
+                     /code or /research run. Change the name, swap keys, or \
+                     turn it off any time: /mcp → Setup.",
+                    cfg.mcp_servers[idx].name
                 ),
             );
         }
         (1, None) => {
             let Ok(cli) = runtime() else {
-                tui::error("No container runtime found — install docker or podman first.");
+                tui::error("Docker isn't installed or running — install Docker (or Podman) first.");
                 return Ok(());
             };
             if let Err(e) = pull_image(cli, &entry.image) {
-                tui::error(&format!("pull failed: {e:#}"));
+                tui::error(&format!("{e:#}"));
                 return Ok(());
             }
-            tui::info("MCP", "Image pulled. Register it any time: /mcp → Search → Add.");
+            tui::info(
+                "MCP",
+                "Downloaded for later. When you want the AI to use it: /mcp \
+                 → Search → pick it → Add this server.",
+            );
         }
         (0, Some(i)) => guided_setup(cfg, paths, i, Some(entry), theme)?,
         (1, Some(_)) => {
             let Ok(cli) = runtime() else {
-                tui::error("No container runtime found — install docker or podman first.");
+                tui::error("Docker isn't installed or running — install Docker (or Podman) first.");
                 return Ok(());
             };
             if let Err(e) = pull_image(cli, &entry.image) {
-                tui::error(&format!("pull failed: {e:#}"));
+                tui::error(&format!("{e:#}"));
                 return Ok(());
             }
-            tui::info("MCP", "Image updated — the server relaunches fresh on its next run.");
+            tui::info(
+                "MCP",
+                "Updated to the newest image — the AI uses it the next time \
+                 the server starts.",
+            );
         }
         (2, Some(i)) => {
             let removed = cfg.mcp_servers.remove(i).name;
@@ -738,9 +790,9 @@ fn guided_setup(
 ) -> Result<()> {
     let server = cfg.mcp_servers[idx].clone();
 
-    // 1. The handle (its tools become mcp_<handle>_<tool>).
+    // 1. A name for the server — what the AI will call its skills.
     let name: String = Input::with_theme(theme)
-        .with_prompt("Server handle (its tools become mcp_<handle>_<tool>)")
+        .with_prompt("What should we call this server? (its skills show up in chat as mcp_<name>_...)")
         .default(server.name.clone())
         .interact()?;
     let cleaned = sanitize_server_name(&name);
@@ -752,24 +804,31 @@ fn guided_setup(
     if cleaned != server.name && taken {
         tui::warn(
             "MCP",
-            &format!("handle '{cleaned}' is taken — kept '{}'.", server.name),
+            &format!(
+                "the name '{cleaned}' already belongs to another server — \
+                 kept '{}'.",
+                server.name
+            ),
         );
     } else {
         cfg.mcp_servers[idx].name = cleaned;
     }
 
-    // 2. Required keys the catalog knows about — hidden input.
+    // 2. Keys the catalog knows this server can't work without —
+    //    asked plainly, typed secretly. (Replace allowed later.)
     if let Some(e) = entry {
         for (key, why) in &e.keys {
             let stored = cfg.mcp_servers[idx].env.contains_key(*key);
             if !stored {
                 if Confirm::with_theme(theme)
-                    .with_prompt(format!("Set {key} now? (needed: {why})"))
+                    .with_prompt(format!("The server needs your {key} — {why}. Add it now?"))
                     .default(true)
                     .interact()?
                 {
                     let val: String = Password::new()
-                        .with_prompt(format!("{key} — paste the value"))
+                        .with_prompt(format!(
+                            "{key} — paste it now (typing is hidden, Enter when done)"
+                        ))
                         .interact()?;
                     cfg.mcp_servers[idx]
                         .env
@@ -778,19 +837,23 @@ fn guided_setup(
                     tui::warn(
                         "MCP",
                         &format!(
-                            "{key} not set — the server may refuse to list \
-                             tools until you add it here (values are hidden \
-                             and sealed inside the vault)."
+                            "It may not start or list its skills until {key} \
+                             is set. Add it later any time: /mcp → Setup → \
+                             your server.",
                         ),
                     );
                 }
             } else if Confirm::with_theme(theme)
-                .with_prompt(format!("Replace the stored {key}?"))
+                .with_prompt(format!(
+                    "You already have a {key} saved for this server. Replace it?"
+                ))
                 .default(false)
                 .interact()?
             {
                 let val: String = Password::new()
-                    .with_prompt(format!("{key} — paste the value"))
+                    .with_prompt(format!(
+                        "{key} — paste the new one (typing is hidden, Enter when done)"
+                    ))
                     .interact()?;
                 cfg.mcp_servers[idx]
                     .env
@@ -799,10 +862,10 @@ fn guided_setup(
         }
     }
 
-    // 3. Extra keys, free-form.
+    // 3. Anything else it needs — settings, tokens, whatever.
     loop {
         let line: String = Input::with_theme(theme)
-            .with_prompt("Another env key (NAME=VALUE, empty to finish)")
+            .with_prompt("Any other secrets or settings it needs? (NAME=value — press Enter alone when done)")
             .allow_empty(true)
             .default("".into())
             .interact()?;
@@ -817,20 +880,20 @@ fn guided_setup(
             None => tui::warn(
                 "MCP",
                 &format!(
-                    "'{line}' is not NAME=VALUE with NAME built of A-Z, 0-9, \
-                     _ (letter or underscore first)."
+                    "'{line}' doesn't look like NAME=value — the name part \
+                     goes in CAPITALS, with numbers and underscores only \
+                     (a letter or underscore first)."
                 ),
             ),
         }
     }
 
-    // 4. Mode permissions — /chat, /code, /research. Routing prefs,
-    //    not the security leash (that is tool_mcp + the Leash).
+    // 4. Which commands get to use these skills.
     set_mode_permissions(cfg, idx, theme);
 
-    // 5. Verify: the honest answer to "does it actually work?".
+    // 5. Test run: the honest answer to "did we set this up right?".
     if Confirm::with_theme(theme)
-        .with_prompt("Verify now? (launches the hardened container and lists its tools)")
+        .with_prompt("Test it now? It starts the server in its locked-down container — no internet — and shows what it can do")
         .default(true)
         .interact()?
     {
@@ -839,12 +902,13 @@ fn guided_setup(
     Ok(())
 }
 
+/// The "which commands" question — plain words, no mode-code jargon.
 fn set_mode_permissions(cfg: &mut Config, idx: usize, theme: &ColorfulTheme) {
     let modes = ["/chat", "/code", "/research"];
     let s = &cfg.mcp_servers[idx];
     let defaults = vec![s.allow_chat, s.allow_code, s.allow_research];
     let chosen = MultiSelect::with_theme(theme)
-        .with_prompt("Use this server's tools in")
+        .with_prompt("Which commands can use this server? (space toggles, Enter saves)")
         .items(&modes)
         .defaults(&defaults)
         .interact()
@@ -855,16 +919,16 @@ fn set_mode_permissions(cfg: &mut Config, idx: usize, theme: &ColorfulTheme) {
     s.allow_research = chosen.contains(&2);
 }
 
-/// Verify and print the outcome with guidance on failure.
+/// Run the test launch and tell the user how it went — plainly.
 fn verify_with_hint(cfg: &mut Config, paths: &Paths, idx: usize) {
     match verify_server(&paths.staging, &cfg.mcp_servers[idx]) {
         Ok(report) => tui::info("MCP", &report),
         Err(e) => tui::warn(
             "MCP",
             &format!(
-                "Verify failed: {e:#}\nMost common causes: a missing API key \
-                 (set it: /mcp → Setup), a wrong image tag, or the container \
-                 runtime being down."
+                "It didn't start: {e:#}\nThe usual causes: a missing or \
+                 wrong key (add it: /mcp → Setup → your server), a wrong \
+                 image name, or Docker being off."
             ),
         ),
     }
@@ -881,15 +945,12 @@ fn verify_server(staging: &Path, server: &McpServer) -> Result<String> {
         // The child dies with the thread (Drop), and a late send after
         // a timeout just fails silently into the dropped receiver.
         let out = McpChild::spawn(&server, &staging).map(|child| {
-            let names: Vec<String> =
-                child.tools.iter().map(|t| t.name.clone()).collect();
+            let names: Vec<String> = child.tools.iter().map(|t| t.name.clone()).collect();
             if names.is_empty() {
-                return format!(
-                    "{} launched and answered, but advertises no tools — \
-                     the image may need env keys (/mcp → Setup) or a \
-                     different container entrypoint.",
-                    server.name
-                );
+                return "It started, but reported nothing it can do. Usually \
+                        that means a needed key isn't set yet (add it: /mcp \
+                        → Setup) — or the image isn't really an MCP server."
+                    .to_string();
             }
             let handle = sanitize_server_name(&server.name);
             let sample = names
@@ -899,10 +960,10 @@ fn verify_server(staging: &Path, server: &McpServer) -> Result<String> {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "{} works — {} tool(s): {sample}{}\nThey go live \
-                 automatically in your next allowed /chat, /code or \
-                 /research run; the model sees and picks them itself. Try \
-                 it: /chat using your MCP tools, <what you need done>.",
+                "It works! '{}' gives the AI {} new skill(s): {sample}{}\n\
+                 Nothing else to set up — the model uses them automatically \
+                 in your next /chat, /code or /research run. Just ask it to \
+                 do the thing.",
                 server.name,
                 names.len(),
                 if names.len() > 3 { " …" } else { "" }
@@ -913,9 +974,9 @@ fn verify_server(staging: &Path, server: &McpServer) -> Result<String> {
     match rx.recv_timeout(Duration::from_secs(90)) {
         Ok(r) => r,
         Err(_) => Err(anyhow!(
-            "the container never finished the MCP handshake within 90s — \
-             the image may be missing, or the runtime hung (/mcp can \
-             re-verify any time)"
+            "the server never answered within 90 seconds — the image may \
+             be broken, or Docker stopped mid-test (/mcp can test it \
+             again any time)"
         )),
     }
 }
@@ -950,49 +1011,78 @@ fn manage_flow(cfg: &mut Config, paths: &Paths, theme: &ColorfulTheme) -> Result
     }
 }
 
-/// One readable management row: state, handle, image, modes, key NAMES
-/// (never values).
+/// One plain management row: on/off, name, the image's short tag, which
+/// commands may use it, and the NAMES of saved secrets (never values).
 fn server_line(s: &McpServer) -> String {
     format!(
-        "[{}] {} — {} (chat {} · code {} · research {} · keys: {})",
+        "[{}] {} ({}) — usable by: {} · secrets kept: {}",
         if s.enabled { "on " } else { "off" },
         s.name,
-        s.image,
-        yn(s.allow_chat),
-        yn(s.allow_code),
-        yn(s.allow_research),
-        if s.env.is_empty() {
-            "none".to_string()
-        } else {
-            s.env.keys().cloned().collect::<Vec<_>>().join(", ")
-        }
+        short_image(&s.image),
+        usable_in(s),
+        secrets_hint(s)
     )
 }
 
-fn yn(b: bool) -> &'static str {
-    if b {
-        "y"
+/// The identifying tail of an image ref — "ghcr.io/github/
+/// github-mcp-server:main" reads as "github-mcp-server:main".
+fn short_image(image: &str) -> &str {
+    image.rsplit('/').next().unwrap_or(image)
+}
+
+/// The commands that may use this server, as a plain list (pub: @status
+/// draws with it too).
+pub fn usable_in(s: &McpServer) -> String {
+    let on: Vec<&str> = [
+        ("chat", s.allow_chat),
+        ("code", s.allow_code),
+        ("research", s.allow_research),
+    ]
+    .iter()
+    .filter(|(_, on)| *on)
+    .map(|(m, _)| *m)
+    .collect();
+    if on.is_empty() {
+        "none yet".to_string()
     } else {
-        "n"
+        on.join(", ")
+    }
+}
+
+/// Which secrets are saved (names only — values never leave the vault).
+fn secrets_hint(s: &McpServer) -> String {
+    if s.env.is_empty() {
+        "none".to_string()
+    } else {
+        s.env.keys().cloned().collect::<Vec<_>>().join(", ")
     }
 }
 
 fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme) -> Result<()> {
     let s = cfg.mcp_servers[idx].clone();
-    let actions = vec![
-        "Walk the full setup again (keys + permissions + verify)",
-        "Add or replace an env key (NAME=VALUE)",
-        "Remove an env key",
-        "Permissions (/chat /code /research)",
-        "Rename the server handle",
-        "Toggle enable/disable",
-        "Update image (pull latest)",
-        "Verify now (launch + list tools)",
-        "Remove from the vault (image kept on disk)",
+    let mut actions: Vec<String> = [
+        "Run the full setup again",
+        "Add or change a secret (NAME=value)",
+        "Remove a saved secret",
+        "Choose which commands can use it (/chat /code /research)",
+        "Rename it",
+        "", // turn on/off — filled in just below
+        "Update to the newest image",
+        "Test it now (starts it in its locked-down container)",
+        "Remove it (the downloaded copy stays on your machine)",
         "Back",
-    ];
+    ]
+    .iter()
+    .map(|a| a.to_string())
+    .collect();
+    actions[5] = if s.enabled {
+        "Turn it off (stays registered, just paused)"
+    } else {
+        "Turn it on"
+    }
+    .to_string();
     let sel = Select::with_theme(theme)
-        .with_prompt(format!("Server '{}' — what to do?", s.name))
+        .with_prompt(format!("Work on '{}' — what would you like to do?", s.name))
         .items(&actions)
         .default(0)
         .interact_opt()?;
@@ -1002,8 +1092,14 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
     match sel {
         0 => guided_setup(cfg, paths, idx, None, theme)?,
         1 => {
+            let any_key = s
+                .env
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| "MY_KEY".to_string());
             let line: String = Input::with_theme(theme)
-                .with_prompt("Env key (NAME=VALUE)")
+                .with_prompt(format!("The secret, as NAME=value (e.g. {any_key}=…)"))
                 .allow_empty(true)
                 .default("".into())
                 .interact()?;
@@ -1012,22 +1108,27 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
                 match parse_env_pair(&typed) {
                     Some((k, v)) => {
                         cfg.mcp_servers[idx].env.insert(k, v);
-                        tui::info("MCP", "Key stored — masked everywhere, sealed inside the vault.");
+                        tui::info(
+                            "MCP",
+                            "Saved. It stays sealed in your vault and is only \
+                             ever passed to the server — never shown again.",
+                        );
                     }
                     None => tui::warn(
                         "MCP",
-                        "Expected NAME=VALUE with NAME built of A-Z, 0-9, _ (letter or underscore first).",
+                        "That doesn't look like NAME=value — the name goes in \
+                         CAPITALS, with numbers and underscores only.",
                     ),
                 }
             }
         }
         2 => {
             if s.env.is_empty() {
-                tui::info("MCP", "No env keys stored for this server.");
+                tui::info("MCP", "No secrets saved for this server yet.");
             } else {
                 let keys: Vec<String> = s.env.keys().cloned().collect();
                 let sel = Select::with_theme(theme)
-                    .with_prompt("Remove which key?")
+                    .with_prompt("Remove which one?")
                     .items(&keys)
                     .default(0)
                     .interact()?;
@@ -1041,7 +1142,7 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
         3 => set_mode_permissions(cfg, idx, theme),
         4 => {
             let name: String = Input::with_theme(theme)
-                .with_prompt("Server handle (its tools become mcp_<handle>_<tool>)")
+                .with_prompt("What should we call this server? (its skills show up in chat as mcp_<name>_...)")
                 .default(s.name.clone())
                 .interact()?;
             let cleaned = sanitize_server_name(&name);
@@ -1054,41 +1155,57 @@ fn manage_one(cfg: &mut Config, paths: &Paths, idx: usize, theme: &ColorfulTheme
                 if taken {
                     tui::warn(
                         "MCP",
-                        &format!("handle '{cleaned}' is taken — kept '{}'.", s.name),
+                        &format!(
+                            "the name '{cleaned}' already belongs to another \
+                             server — kept '{}'.",
+                            s.name
+                        ),
                     );
                 } else {
                     cfg.mcp_servers[idx].name = cleaned.clone();
-                    tui::info("MCP", &format!("Handle is now '{cleaned}'."));
+                    tui::info("MCP", &format!("Renamed to '{cleaned}'."));
                 }
             }
         }
         5 => {
             cfg.mcp_servers[idx].enabled = !s.enabled;
             if cfg.mcp_servers[idx].enabled {
-                tui::info("MCP", &format!("{} enabled.", s.name));
+                tui::info("MCP", &format!("{} turned on.", s.name));
             } else {
                 tui::info(
                     "MCP",
-                    &format!("{} disabled — registration kept, runs paused.", s.name),
+                    &format!(
+                        "{} turned off — it stays registered, the AI just \
+                         won't launch it until you turn it back on.",
+                        s.name
+                    ),
                 );
             }
         }
         6 => match runtime() {
             Ok(cli) => match pull_image(cli, &s.image) {
-                Ok(()) => tui::info("MCP", "Image updated — the server relaunches fresh on its next run."),
-                Err(e) => tui::error(&format!("pull failed: {e:#}")),
+                Ok(()) => tui::info(
+                    "MCP",
+                    "Updated to the newest image — the AI uses it the next \
+                     time the server starts.",
+                ),
+                Err(e) => tui::error(&format!("{e:#}")),
             },
             Err(e) => tui::error(&e.to_string()),
         },
         7 => verify_with_hint(cfg, paths, idx),
         8 => {
             if Confirm::with_theme(theme)
-                .with_prompt(format!("Remove '{}' from the vault? (image kept on disk)", s.name))
+                .with_prompt(format!(
+                    "Remove '{}'? You can add it back any time — the \
+                     downloaded copy stays on this machine.",
+                    s.name
+                ))
                 .default(false)
                 .interact()?
             {
                 let removed = cfg.mcp_servers.remove(idx).name;
-                tui::info("MCP", &format!("'{removed}' removed from the vault."));
+                tui::info("MCP", &format!("Removed '{removed}'."));
             }
         }
         _ => {}
@@ -1386,8 +1503,8 @@ pub fn spawn_pool(cfg: &Config, paths: &Paths, mode: &str) -> (Vec<McpChild>, Ve
             Ok(child) => {
                 if child.tools.is_empty() {
                     warnings.push(format!(
-                        "MCPS: {} '{}' came up but advertises no tools — \
-                         image may need env keys (/mcp → Setup).",
+                        "MCPS: {} '{}' started but reported nothing it can \
+                         do — it probably needs a key (add it: /mcp → Setup).",
                         s.name, s.image
                     ));
                 }
@@ -1820,6 +1937,39 @@ mod tests {
         assert!(line.contains("GITHUB_PERSONAL_ACCESS_TOKEN"), "{line}");
         assert!(!line.contains("ghp_super_secret"), "{line}");
         assert!(line.contains("[on]"), "{line}");
+        assert!(line.contains("usable by: chat, code, research"), "{line}");
+        assert!(line.contains("github-mcp-server:main"), "{line}");
+    }
+
+    #[test]
+    fn status_hints_read_plain() {
+        let mut s = srv("gh", "a/gh");
+        assert_eq!(usable_in(&s), "chat, code, research", "default: everything");
+        assert_eq!(secrets_hint(&s), "none");
+        assert_eq!(short_image("ghcr.io/github/github-mcp-server:main"), "github-mcp-server:main");
+        s.allow_code = false;
+        s.env.insert("GITHUB_PERSONAL_ACCESS_TOKEN".into(), "x".into());
+        assert_eq!(usable_in(&s), "chat, research");
+        assert_eq!(secrets_hint(&s), "GITHUB_PERSONAL_ACCESS_TOKEN");
+        s.allow_chat = false;
+        s.allow_research = false;
+        assert_eq!(usable_in(&s), "none yet", "turn everything off — say so plainly");
+    }
+
+    #[test]
+    fn runtime_complaints_get_trimmed_to_the_point() {
+        let noisy = b"Copying blob sha256:deadbeef\nCopying blob sha256:cafe\r\nCopying blob sha256:beef\nError: manifest for ghcr.io/x/y not found\r\n";
+        let out = error_tail(noisy, 3);
+        assert!(out.contains("Error: manifest for ghcr.io/x/y not found"), "{out}");
+        assert!(!out.contains("Copying blob"), "progress spam stays out: {out}");
+        // docker words survive too
+        let docker = b"Using default tag: latest\nError response from daemon: manifest unknown\n";
+        assert!(error_tail(docker, 2).contains("Error response from daemon"));
+        // a fully silent failure gets an honest stand-in, never a blank
+        assert!(
+            error_tail(b"Copying blob one\r\n \n", 3).contains("no explanation"),
+            "silent failures still get words"
+        );
     }
 
     #[test]
