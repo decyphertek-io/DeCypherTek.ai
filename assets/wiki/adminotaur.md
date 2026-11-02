@@ -13,7 +13,8 @@ are all its territory.
   and reversible; report exactly what was done.
 - **Operates the whole AI system.** It interacts with every piece:
   brain (OpenRouter/Ollama), memory (RAG + wiki), tools (gated by the
-  Leash), /mcp MCP containers (network=none, stdio-only).
+  Leash), /mcp MCP containers (hardened, stdio-only; outbound
+  internet — per-server opt-out into full network isolation).
 - **Builds subagents.** When a task exceeds the built-in toolset, it
   designs and builds subagents — specialized prompt + tool
   configurations that extend the system. Operating the AI system

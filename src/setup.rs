@@ -472,7 +472,7 @@ fn confirm_unleashed(theme: &ColorfulTheme) -> Result<bool> {
          • WRITE, change and delete files anywhere your user can write\n\
          • RUN any shell command — no per-command y/N ask anymore\n\
          • SEARCH the web (keyless DuckDuckGo + Wikipedia)\n\
-         • RUN MCP tool servers from /mcp (docker; hardened, network=none, stdio-only)\n\
+         • RUN MCP tool servers from /mcp (docker; hardened, stdio-only, internet unless isolated per server)\n\
          • BUILD subagents that carry this same access\n\n\
          Nothing limits it beyond your user's own permissions — if it \
          misbehaves it can wreck your home directory. It is logged, \

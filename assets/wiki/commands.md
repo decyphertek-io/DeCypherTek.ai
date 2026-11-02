@@ -81,9 +81,11 @@ metadata query API (archive.org/advancedsearch.php).
   remove keys, permission toggles, rename, enable/disable, update the
   image, re-verify, remove (the image stays on disk).
 - Registered servers launch with the security template on every
-  allowed run: `--network=none`, `--cap-drop=ALL`,
-  no-new-privileges, stdio-only. A server can only ever answer the
-  agent — it cannot publish ports, reach the LAN, or call out.
+  allowed run: `--cap-drop=ALL`, no-new-privileges, stdio-only,
+  nothing published — plus outbound internet (a server must reach
+  the web APIs it serves), unless the server opts into
+  `--network=none` (never-network servers: filesystem, sqlite,
+  memory, time). Nothing on the machine can reach it.
 
 ## Management
 
