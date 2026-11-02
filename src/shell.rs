@@ -16,23 +16,22 @@ use std::path::PathBuf;
 pub const HELP: &str = "\
 slash shell — commands run exactly as typed; /-commands wake the agent.
 
-  /chat <task>        conversation backed by full memory
+  /chat <task>        conversation backed by full memory — ask it about
+                      anything it has read, learned or indexed
   /code <task>        hands-on: read, change, verify, report diffs
   /research <topic>   web research + memory, ends in a written report
   /research <n>.yml <topic>
                       same, but searching only the sites listed in the
                       research profile <n>.yml (create/edit via /setup)
-  /upload             pick files from a folder browser (Downloads etc.) —
-                      they land in the wiki's info/ folder and RAG memory
+  /rag <folder> *     index every document in the folder into RAG memory
+                      (pdf, doc, docx, epub, text, code…; +read grant)
+  /rag <folder> <f>   index one document by name
   /store              MCP tool-server store: search Docker A-Z (TUI), pull,
                       register — servers launch hardened, internal-only
-  /ingest <folder>    chunk a folder's docs into RAG memory (+read grant)
   /grants read <p>    grant a folder to read
   /grants write <p>   grant a folder to write
   /leash <mode>       leashed | unleashed — take the leash on/off
   /status             current agent, brain, leash, grants, memory
-  /wiki list          list wiki memory pages
-  /wiki read <name>   print a wiki page
   /setup              customize: brain, memory folders, leash + grants,
                       research profiles (Enter keeps what you already have)
   /password           change the vault password
@@ -40,6 +39,10 @@ slash shell — commands run exactly as typed; /-commands wake the agent.
   exit                seal the vault and quit
   cd [path]           change directory (~, .., - ; the prompt follows)
   anything else       runs in your shell, untouched
+
+  /rag is differential: unchanged documents cost nothing on a re-run,
+  changed documents replace their chunks, deleted documents are pruned.
+  Ask /chat about anything you /rag — it answers straight from memory.
 
   every command also works with the older @-prefix (@chat = /chat)";
 
@@ -182,36 +185,45 @@ fn handle(
             }
             run_agent(cfg, paths, vectors, "research", &task, &sites)
         }
-        "@upload" => {
-            upload_docs(paths, vectors)?;
-            Ok(())
-        }
-        "@ingest" => {
-            if rest.is_empty() {
+        "@rag" => {
+            // /rag <folder> *           — index the whole folder
+            // /rag <folder> <name.ext>  — index one document
+            let mut args = rest.split_whitespace();
+            let (Some(folder_arg), file_arg) = (args.next(), args.next().unwrap_or("*")) else {
                 tui::info(
                     "USAGE",
-                    "/ingest <folder> — chunk a folder's docs into RAG memory.",
+                    "/rag <folder> *          — index every document in the folder\n\
+                     /rag <folder> <name.ext> — index one document\n\
+                     (pdf, doc, docx, epub, text, code — indexed differentially)",
                 );
                 return Ok(());
-            }
-            let folder = std::path::PathBuf::from(rest);
+            };
+            let folder = expand_tilde(folder_arg);
             if !folder.is_dir() {
-                tui::error(&format!("'{}' is not a folder", rest));
+                tui::error(&format!("'{}' is not a folder", folder_arg));
                 return Ok(());
             }
-            let (files, added) = vectors.ingest_folder(&folder)?;
-            let f = folder.to_string_lossy().to_string();
-            if !cfg.rag_folders.contains(&f) {
-                cfg.rag_folders.push(f.clone());
+            if file_arg == "*" {
+                let report = vectors.ingest_folder(&folder)?;
+                let f = folder.to_string_lossy().to_string();
+                if !cfg.rag_folders.contains(&f) {
+                    cfg.rag_folders.push(f.clone());
+                }
+                if !cfg.read_paths.contains(&f) {
+                    cfg.read_paths.push(f.clone());
+                }
+                cfg.save(paths).context("save config after rag")?;
+                tui::info("RAG", &rag_summary(rest, &report, true));
+                return Ok(());
             }
-            if !cfg.read_paths.contains(&f) {
-                cfg.read_paths.push(f.clone());
+            let path = folder.join(file_arg);
+            if !path.is_file() {
+                tui::error(&format!("no file '{}' in {}", file_arg, folder_arg));
+                return Ok(());
             }
-            cfg.save(paths).context("save config after ingest")?;
-            tui::info(
-                "RAG",
-                &format!("{rest}: {files} files scanned, {added} chunks added. READ granted."),
-            );
+            let report = vectors.ingest_file(&path)?;
+            let _ = crate::wiki::refresh_index_page(paths, vectors);
+            tui::info("RAG", &rag_summary(file_arg, &report, false));
             Ok(())
         }
         "@grants" => {
@@ -300,32 +312,6 @@ fn handle(
                 ),
             );
             Ok(())
-        }
-        "@wiki" => {
-            let parts: Vec<&str> = rest.splitn(2, ' ').collect();
-            match parts.as_slice() {
-                ["list"] => {
-                    let pages = crate::wiki::list(paths)?;
-                    tui::info(
-                        "WIKI",
-                        &if pages.is_empty() {
-                            "(empty)".to_string()
-                        } else {
-                            pages.join(", ")
-                        },
-                    );
-                    Ok(())
-                }
-                ["read", name] => {
-                    let body = crate::wiki::read(paths, name)?;
-                    println!("{body}");
-                    Ok(())
-                }
-                _ => {
-                    tui::info("USAGE", "/wiki list  |  /wiki read <name>");
-                    Ok(())
-                }
-            }
         }
         "@setup" => {
             let new_cfg = crate::setup::wizard(paths, Some(cfg))?;
@@ -492,139 +478,26 @@ fn run_agent(
     }
 }
 
-/// @upload: interactive folder browser — the picker opens at Downloads
-/// (or /sdcard/Download on Android) and walks the folder structure;
-/// picked files are copied into the wiki's info/ folder and chunked
-/// into RAG memory, so they seal into the vault and the agent can read
-/// them (wiki + memory). Text files are chunked; binaries are stored
-/// as-is with a note.
-fn upload_docs(paths: &Paths, vectors: &mut Vectors) -> Result<()> {
-    use dialoguer::theme::ColorfulTheme;
-    use dialoguer::Select;
-
-    let theme = ColorfulTheme::default();
-    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
-    let mut dir = [
-        std::path::PathBuf::from("/sdcard/Download"),
-        home.join("storage/downloads"),
-        home.join("Downloads"),
-    ]
-    .into_iter()
-    .find(|p| p.is_dir())
-    .unwrap_or(home);
-
-    tui::info(
-        "UPLOAD",
-        "Pick files to upload: they are copied into the agent's info/ wiki \
-         folder and chunked into RAG memory — sealed into the vault, \
-         readable by the agent. Folders navigate; '(done)' finishes.",
-    );
-
-    loop {
-        let mut dirs: Vec<String> = Vec::new();
-        let mut files: Vec<std::path::PathBuf> = Vec::new();
-        match std::fs::read_dir(&dir) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with('.') {
-                        continue;
-                    }
-                    if entry.path().is_dir() {
-                        dirs.push(name);
-                    } else {
-                        files.push(entry.path());
-                    }
-                }
-            }
-            Err(e) => {
-                tui::error(&format!("cannot read {}: {e}", dir.display()));
-                break;
-            }
-        }
-        dirs.sort();
-        files.sort();
-
-        let up = dir
-            .parent()
-            .filter(|p| *p != dir && p.is_dir())
-            .map(|p| p.to_path_buf());
-        let mut items: Vec<String> = vec!["(done — finish uploading)".into()];
-        if up.is_some() {
-            items.push("(go up one folder)".into());
-        }
-        let base = items.len();
-        items.extend(dirs.iter().map(|d| format!("{d}/")));
-        items.extend(files.iter().map(|f| {
-            f.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-        }));
-
-        let sel = Select::with_theme(&theme)
-            .with_prompt(format!("Folder: {}", dir.display()))
-            .items(&items)
-            .default(0)
-            .interact()?;
-        if sel == 0 {
-            break;
-        }
-        if sel == 1 {
-            if let Some(parent) = up {
-                dir = parent;
-                continue;
-            }
-        }
-        let idx = sel - base;
-        if idx < dirs.len() {
-            dir = dir.join(&dirs[idx]);
-            continue;
-        }
-        let file = &files[idx - dirs.len()];
-        let raw_name = file
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        match crate::wiki::info_file_path(paths, &raw_name) {
-            Ok(dest) => match std::fs::copy(file, &dest) {
-                Ok(_) => match std::fs::read_to_string(&dest) {
-                    Ok(text) => {
-                        // Differential: re-uploading a same-named file
-                        // replaces its chunks instead of duplicating them.
-                        let name = dest
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let msg =
-                            match vectors.sync_source(&format!("info/{name}"), "info-doc", &text) {
-                                Ok(crate::vector::SyncOutcome::Changed { chunks, added }) => {
-                                    format!(
-                                        "{name} → info/ — {added} of {chunks} chunks indexed \
-                                     into RAG (readable via memory and @wiki read info/{name})"
-                                    )
-                                }
-                                _ => format!("{name} → info/ — unchanged, memory already current"),
-                            };
-                        tui::info("UPLOAD", &msg);
-                    }
-                    Err(_) => tui::warn(
-                        "UPLOAD",
-                        &format!(
-                            "{raw_name} copied into info/ — binary, stored but not \
-                             text-chunked into RAG"
-                        ),
-                    ),
-                },
-                Err(e) => tui::error(&format!("copy failed: {e}")),
-            },
-            Err(e) => tui::error(&format!("bad file name '{raw_name}': {e}")),
-        }
+/// One readable summary for a `/rag` run's totals.
+fn rag_summary(target: &str, r: &crate::vector::IngestReport, granted: bool) -> String {
+    if r.indexed == 0 && r.added == 0 && r.skipped.is_empty() {
+        return format!("{target}: memory already current — nothing changed.");
     }
-    let _ = crate::wiki::refresh_index_page(paths, vectors);
-    Ok(())
+    let mut s = format!(
+        "{target}: {} file(s) scanned, {} indexed, {} chunk(s) added",
+        r.files, r.indexed, r.added
+    );
+    if r.unsupported > 0 {
+        s.push_str(&format!(", {} non-doc skipped", r.unsupported));
+    }
+    s.push('.');
+    if granted {
+        s.push_str("\nREAD granted.");
+    }
+    for note in r.skipped.iter().take(3) {
+        s.push_str(&format!("\n  skipped: {note}"));
+    }
+    s
 }
 
 fn change_password(paths: &Paths, key: &mut [u8; 32], salt: &[u8; 16]) -> Result<()> {

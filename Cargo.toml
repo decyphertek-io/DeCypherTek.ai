@@ -27,6 +27,10 @@ getrandom = "0.2"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 console = "0.15"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+pdf-extract = "0.12.1"
+quick-xml = "0.42.0"
+zip = "9.2.2"
+cfb = "0.16.0"
 
 [profile.release]
 lto = "thin"

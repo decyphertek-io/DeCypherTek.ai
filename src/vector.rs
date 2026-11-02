@@ -9,7 +9,7 @@
 //! cosine scan below is the fallback — same results, slower.
 //!
 //! Differential indexing: every durable document (wiki page, ingested
-//! file, uploaded doc) is registered in `sources(source, fhash)`.
+//! file, indexed document) is registered in `sources(source, fhash)`.
 //! `sync_source` compares the content hash and rewrites the document's
 //! chunk set only when the content changed; vanished documents are
 //! pruned. Re-indexing an unchanged corpus is free, and the store never
@@ -24,7 +24,6 @@ use std::cell::Cell;
 use std::path::Path;
 
 pub const DIMS: usize = 256;
-const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024; // skip huge/binary files
 const TARGET_CHUNK: usize = 900;
 const HARD_CHUNK: usize = 1200;
 
@@ -32,11 +31,6 @@ const HARD_CHUNK: usize = 1200;
 /// f32 BLOBs produced by `embed()`, which L2-normalizes every vector,
 /// so `normalized=1` lets cosine collapse to `1 - dot`.
 const VECTOR_INIT_OPTS: &str = "type=FLOAT32,dimension=256,distance=cosine,normalized=1";
-
-const INGESTIBLE_EXT: &[&str] = &[
-    "md", "txt", "log", "json", "csv", "rs", "py", "js", "ts", "go", "c", "h", "cpp", "sh", "yaml",
-    "yml", "toml", "html", "css",
-];
 
 // The extension's entry point, from vendor/sqlite-vector (build.rs
 // compiles it into the binary). Its signature IS the generic
@@ -321,13 +315,23 @@ impl Vectors {
         Ok(hits)
     }
 
+    /// Index one document (any supported type) into the store — the
+    /// single-file path of `/rag <folder> <file>`.
+    pub fn ingest_file(&self, path: &Path) -> Result<IngestReport> {
+        let mut report = IngestReport {
+            files: 1,
+            ..IngestReport::default()
+        };
+        self.ingest_one(path, &mut report)?;
+        self.ensure_index();
+        Ok(report)
+    }
+
     /// Recursively index a folder into the store, differentially: files
     /// whose content hash changed are re-chunked, new files chunked,
-    /// files that vanished since the last ingest are pruned. Returns
-    /// (files_seen, chunks_added_or_changed).
-    pub fn ingest_folder(&self, folder: &Path) -> Result<(usize, usize)> {
-        let mut files = 0usize;
-        let mut added = 0usize;
+    /// files that vanished since the last ingest are pruned.
+    pub fn ingest_folder(&self, folder: &Path) -> Result<IngestReport> {
+        let mut report = IngestReport::default();
         let mut seen: Vec<String> = Vec::new();
         let mut stack = vec![folder.to_path_buf()];
         while let Some(dir) = stack.pop() {
@@ -343,20 +347,13 @@ impl Vectors {
                 }
                 if path.is_dir() {
                     stack.push(path);
-                } else if is_ingestible(&path) {
-                    files += 1;
-                    if let Ok(meta) = std::fs::metadata(&path) {
-                        if meta.len() > MAX_FILE_BYTES {
-                            continue;
-                        }
+                } else {
+                    report.files += 1;
+                    if !crate::extract::is_supported(&path) {
+                        report.unsupported += 1;
+                        continue;
                     }
-                    if let Ok(text) = read_text_lossy(&path) {
-                        let source = path.to_string_lossy().to_string();
-                        if let SyncOutcome::Changed { added: a, .. } =
-                            self.sync_source(&source, "docs", &text)?
-                        {
-                            added += a;
-                        }
+                    if let Ok(source) = self.ingest_one(&path, &mut report) {
                         seen.push(source);
                     }
                 }
@@ -370,8 +367,49 @@ impl Vectors {
             }
         }
         self.ensure_index();
-        Ok((files, added))
+        Ok(report)
     }
+
+    /// Extract + differential-sync one file; returns its source name
+    /// when it produced indexable text.
+    fn ingest_one(&self, path: &Path, report: &mut IngestReport) -> Result<String> {
+        let source = path.to_string_lossy().to_string();
+        match crate::extract::extract(path) {
+            Ok(crate::extract::Extracted::Text(text)) => {
+                if let SyncOutcome::Changed { added, .. } =
+                    self.sync_source(&source, "docs", &text)?
+                {
+                    report.indexed += 1;
+                    report.added += added;
+                }
+                Ok(source)
+            }
+            Ok(crate::extract::Extracted::Empty(reason)) => {
+                report
+                    .skipped
+                    .push(format!("{} — {reason}", path.display()));
+                Ok(source)
+            }
+            Ok(crate::extract::Extracted::Unsupported) => {
+                report.unsupported += 1;
+                Ok(source)
+            }
+            Err(e) => {
+                report.skipped.push(format!("{} — {e}", path.display()));
+                Ok(source)
+            }
+        }
+    }
+}
+
+/// One `/rag` run's totals, for the user-facing summary.
+#[derive(Default)]
+pub struct IngestReport {
+    pub files: usize,
+    pub indexed: usize,
+    pub added: usize,
+    pub unsupported: usize,
+    pub skipped: Vec<String>,
 }
 
 /// Create the current schema, then migrate legacy stores forward.
@@ -434,18 +472,6 @@ fn migrate(conn: &Connection) -> Result<()> {
          CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);",
     )?;
     Ok(())
-}
-
-fn is_ingestible(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| INGESTIBLE_EXT.contains(&e.to_lowercase().as_str()))
-        .unwrap_or(false)
-}
-
-fn read_text_lossy(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 // ---------- embeddings ----------
@@ -722,12 +748,19 @@ mod tests {
             "zedran relay calibration notes for the distillery",
         )
         .unwrap();
+        std::fs::write(dir.join("nope.iso"), vec![0u8; 32]).unwrap();
         let v = tmpdb("ingest");
-        let (files, first) = v.ingest_folder(&dir).unwrap();
-        assert_eq!(files, 1);
-        assert!(first > 0);
-        let (_, second) = v.ingest_folder(&dir).unwrap();
-        assert_eq!(second, 0, "unchanged folder must add nothing");
+        let r = v.ingest_folder(&dir).unwrap();
+        assert_eq!(r.files, 2);
+        assert!(r.added > 0);
+        assert_eq!(r.unsupported, 1);
+        let r = v.ingest_folder(&dir).unwrap();
+        assert_eq!(r.added, 0, "unchanged folder must add nothing");
+        assert_eq!(r.indexed, 0, "and nothing counts as re-indexed");
+
+        // Single-file mode: re-rag the same file is a no-op too.
+        let r = v.ingest_file(&dir.join("a.md")).unwrap();
+        assert_eq!(r.added, 0);
 
         // Changed file: re-chunked, old wording no longer searchable.
         std::fs::write(
@@ -735,8 +768,8 @@ mod tests {
             "updated: heliostat bearing maintenance log",
         )
         .unwrap();
-        let (_, third) = v.ingest_folder(&dir).unwrap();
-        assert!(third > 0);
+        let r = v.ingest_folder(&dir).unwrap();
+        assert!(r.added > 0);
         assert!(hit_sources(&v, "zedran relay").is_empty());
 
         // Deleted file: pruned from the store.
@@ -744,6 +777,55 @@ mod tests {
         let _ = v.ingest_folder(&dir).unwrap();
         assert!(v.sources_with_kind("docs").unwrap().is_empty());
         assert!(hit_sources(&v, "heliostat bearing").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rich_documents_index_and_recall() {
+        // A folder of "normal people" documents — Word + EPUB — must
+        // land in the store and be recallable by content.
+        let dir = std::env::temp_dir().join(format!("dct-rich-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            use std::io::Write;
+            let mut buf = Vec::new();
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            w.start_file(
+                "word/document.xml",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            w.write_all(br#"<w:document><w:body><w:p><w:r><w:t>The heliostat invoice totals 4400 ducats</w:t></w:r></w:p></w:body></w:document>"#)
+                .unwrap();
+            w.finish().unwrap();
+            std::fs::write(dir.join("invoice.docx"), buf).unwrap();
+        }
+        {
+            use std::io::Write;
+            let mut buf = Vec::new();
+            let mut w = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+            w.start_file("mimetype", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            w.write_all(b"application/epub+zip").unwrap();
+            w.start_file("c1.xhtml", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            w.write_all(
+                br#"<html><body><p>The duchess keeps zigfruit in the cellar</p></body></html>"#,
+            )
+            .unwrap();
+            w.finish().unwrap();
+            std::fs::write(dir.join("book.epub"), buf).unwrap();
+        }
+
+        let v = tmpdb("rich");
+        let r = v.ingest_folder(&dir).unwrap();
+        assert_eq!(r.unsupported, 0);
+        assert!(r.added > 0, "both documents must chunk in");
+        let hits = v.search("who keeps the zigfruit", 5).unwrap();
+        assert!(hits[0].source.ends_with("book.epub"));
+        let hits = v.search("heliostat invoice total", 5).unwrap();
+        assert!(hits[0].source.ends_with("invoice.docx"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

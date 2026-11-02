@@ -27,13 +27,14 @@ Every durable document is tracked in a `sources(source, fhash)` table:
   documents entirely**; changed documents have their chunk set replaced
   in full, so an edit can never leave stale chunks behind.
 - Documents that vanish (deleted wiki page, removed file) are pruned.
-- `/ingest`, `/upload` re-writes and every wiki write all go through it,
-  so re-indexing an unchanged corpus is free.
+- `/rag` (folders and single files) and every wiki write all go through
+  it, so re-indexing an unchanged corpus is free.
 
 ## Kinds of knowledge in the store
 
 - `wiki` — every wiki page, auto-indexed
-- `docs` — the folders you gave it (RAG ingest)
+- `docs` — everything you `/rag`: folders or single files — text, code,
+  PDF, Word (docx, legacy doc), EPUB — extracted and chunked
 - `learned` — distilled learnings the agent stores with `remember`
 - `report` — final reports of past runs
 - `chatlog` — whole case files (prompt → thoughts → tool calls → report)
@@ -47,8 +48,9 @@ written (and on launch, differentially) — one `memory_search` reaches all
 of it without list-then-read token costs.
 
 **`memory-index`** is the memory directory: an auto-generated page listing
-every page, upload and research profile with one-line summaries. Read it
-first when unsure where knowledge lives; `memory_search` digs deeper.
+every page, indexed document and research profile with one-line
+summaries. Read it first when unsure where knowledge lives;
+`memory_search` digs deeper.
 
 Read the wiki, edit it, hand-evolve the agent.
 

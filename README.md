@@ -24,18 +24,19 @@ From that prompt, your terminal stays a terminal — anything without a `/` runs
 
 | Command | What it does |
 | --- | --- |
-| `/chat <task>` | Talk to it, with its full memory behind the answer |
+| `/chat <task>` | Talk to it, with its full memory behind the answer — ask about anything you `/rag` or it has read |
 | `/code <task>` | Hands-on work — ends in a report of exactly what changed |
 | `/research <topic>` | Web research — ends in a written report with sources |
-| `/upload` | Pick files from Downloads — it reads and remembers them |
-| `/ingest <folder>` | Teach it every document in a folder |
+| `/rag <folder> *` | Index every document in the folder — PDF, Word (.docx/.doc), EPUB, text, code — and grant read |
+| `/rag <folder> <file>` | Index one document by name |
 | `/store` | Browse and add tool servers to the agent |
-| `/wiki list` / `/wiki read <name>` | Read the agent's own knowledge pages |
 | `/status` | Current brain, permissions, memory size |
 | `/setup` | Re-open the setup wizard (any setting, anytime) |
 | `/password` | Change the vault password |
 | `/help` | The full command list |
 | `exit` (or Ctrl-D) | Seal the vault and quit |
+
+`/rag` is differential: re-run it any time — unchanged documents cost nothing, changed ones update in place, deleted ones drop out of memory. Re-running the install command also updates the agent.
 
 While a task runs the screen shows one line; when it finishes you get one report — what was asked, what was done, what changed — and the prompt returns.
 
@@ -57,7 +58,7 @@ curl -fsSL https://github.com/decyphertek-io/DeCypherTek.ai/raw/main/scripts/uni
 
 **Its abilities, high level:**
 
-- **RAG chat** — conversations are backed by a private vector database: everything the agent learns (documents, past runs, distilled skills) is chunked and indexed so the relevant knowledge is found instantly instead of re-reading everything. Answers stay fast — and it never forgets between runs.
+- **RAG chat** — conversations are backed by a private vector database: everything you `/rag` (folders or single documents — PDF, Word, EPUB, text, code) and everything the agent learns (past runs, distilled skills) is chunked and indexed so the relevant knowledge is found instantly instead of re-reading everything. Answers stay fast — and it never forgets between runs.
 - **LLM wiki** — durable knowledge goes into a markdown knowledge base the agent writes and maintains itself: a `memory-index` directory page maps where everything lives, and new pages are auto-indexed into its memory the moment they are written.
 - **Web research** — searches the web and delivers a written report with sources; research can be locked to specific site lists you define.
 - **Hands-on system work** — reads and writes files, runs shell commands, and verifies its own work, reporting exactly what changed.
