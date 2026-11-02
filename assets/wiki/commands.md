@@ -60,19 +60,30 @@ metadata query API (archive.org/advancedsearch.php).
   vector memory (one memory_search reaches the right chunk), never by
   the agent re-reading whole folders or wasting tokens.
 
-## @store — MCP tool servers
+## @mcp — MCP tool servers
 
-- `@store` — the MCP store: a fuzzy-searchable TUI over every MCP server
-  found in Docker, A-Z — the in-binary catalog, a live Docker Hub query,
-  and images already pulled on this machine.
-- Pick one → pull → registered in the vault. Registered servers launch
-  with the security template on every @-run: `--network=none`,
-  `--cap-drop=ALL`, no-new-privileges, stdio-only. A server can only
-  ever answer the agent — it cannot publish ports, reach the LAN, or
-  call out. Their tools appear as `mcp_<server>_<tool>`.
-- `@store` also flips servers enabled/disabled, updates images, and
-  uninstalls. Some servers need API keys (e.g. GitHub MCP wants
-  `GITHUB_PERSONAL_ACCESS_TOKEN`) — provide them per server image docs.
+- `@mcp` — a question-driven menu over every MCP server found in
+  Docker, A-Z: the in-binary catalog, a live Docker Hub query, and
+  images already pulled on this machine.
+- **Search for a new MCP server** — pick one, pull it (success is the
+  runtime's exit status plus an image inspect — docker and podman both
+  report honestly), then a short setup walk:
+  - **API keys**: the questions know what the image needs (e.g. GitHub
+    MCP wants `GITHUB_PERSONAL_ACCESS_TOKEN`) — hidden input, values
+    sealed in the encrypted vault, shown masked ever after, injected
+    via a 0600 env-file (never in argv or `ps`).
+  - **Mode permissions**: choose which runs may use the server —
+    `/chat`, `/code`, `/research`, each independently (default: all).
+  - **Verify**: launches the hardened container and lists its tools —
+    before you leave the menu you know it works, and how its tools are
+    named (`mcp_<server>_<tool>`).
+- **Setup an MCP server** — manage what is registered: add/replace or
+  remove keys, permission toggles, rename, enable/disable, update the
+  image, re-verify, remove (the image stays on disk).
+- Registered servers launch with the security template on every
+  allowed run: `--network=none`, `--cap-drop=ALL`,
+  no-new-privileges, stdio-only. A server can only ever answer the
+  agent — it cannot publish ports, reach the LAN, or call out.
 
 ## Management
 

@@ -24,10 +24,12 @@ slash shell — commands run exactly as typed; /-commands wake the agent.
                       same, but searching only the sites listed in the
                       research profile <n>.yml (create/edit via /setup)
   /rag <folder> *     index every document in the folder into RAG memory
-                      (pdf, doc, docx, epub, text, code…; +read grant)
+                       (pdf, doc, docx, epub, text, code…; +read grant)
   /rag <folder> <f>   index one document by name
-  /store              MCP tool-server store: search Docker A-Z (TUI), pull,
-                      register — servers launch hardened, internal-only
+  /mcp                MCP tool servers: search & add (pull + keys +
+                       permissions), or set up registered ones —
+                       verifies the launch, sets /chat /code /research
+                       access; servers run hardened, stdio-only
   /grants read <p>    grant a folder to read
   /grants write <p>   grant a folder to write
   /leash <mode>       leashed | unleashed — take the leash on/off
@@ -119,8 +121,8 @@ fn handle(
             println!("{HELP}");
             Ok(())
         }
-        "@store" => {
-            crate::store::browse(cfg, paths, rest)?;
+        "@mcp" => {
+            crate::mcp::mcp(cfg, paths, rest)?;
             Ok(())
         }
         "@chat" | "@code" => {
@@ -279,16 +281,27 @@ fn handle(
             let n = vectors.count()?;
             let pages = crate::wiki::list(paths)?.len();
             let mcp = if cfg.mcp_servers.is_empty() {
-                "(none — /store adds them)".to_string()
+                "(none — /mcp adds them)".to_string()
             } else {
                 cfg.mcp_servers
                     .iter()
                     .map(|s| {
+                        let keys = if s.env.is_empty() {
+                            "keys: none".to_string()
+                        } else {
+                            format!(
+                                "keys: {} (hidden)",
+                                s.env.keys().cloned().collect::<Vec<_>>().join(", ")
+                            )
+                        };
                         format!(
-                            "{}{} {}",
+                            "{}{} {} — chat {} · code {} · research {} · {keys}",
                             s.name,
                             if s.enabled { "" } else { " (off)" },
-                            s.image
+                            s.image,
+                            if s.allow_chat { "y" } else { "n" },
+                            if s.allow_code { "y" } else { "n" },
+                            if s.allow_research { "y" } else { "n" }
                         )
                     })
                     .collect::<Vec<_>>()
