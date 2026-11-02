@@ -86,7 +86,7 @@ esac
 if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" == *com.termux* ]]; then
   die "Termux is not supported — a translation layer is no kernel: no cgroups, \
       no containers. On Android, run this same command inside Podroid's Linux \
-      VM (or the Mobian VM app). Everywhere else: any Linux aarch64/x86_64 terminal."
+      VM. Everywhere else: any Linux aarch64/x86_64 terminal."
 fi
 
 # ---------------------------------------------------------------- platform
